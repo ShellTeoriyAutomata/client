@@ -12,6 +12,21 @@
     "electron": "concurrently \"npm run dev\" \"wait-on tcp:5173 && cross-env NODE_ENV=development electron .\"",
     "electron:pack": "npm run build && electron-builder"
   },
+  "build": {
+    "appId": "com.automata.app",
+    "productName": "Automata",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  },
   "dependencies": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

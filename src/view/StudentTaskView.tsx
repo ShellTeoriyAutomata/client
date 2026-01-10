@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { Task } from '../models/types';
 import { SimulationController, type SimulationState } from '../controllers/SimulationController';
+import { AuthController } from '../controllers/AuthController';
+import { ResultController } from '../controllers/ResultController';
 
 interface StudentTaskViewProps {
   task: Task;
@@ -61,6 +63,28 @@ const StudentTaskView: React.FC<StudentTaskViewProps> = ({ task, onBack }) => {
 
   // Destructure state for easier usage in render
   const { stack, templateIndex, status, logs, errorMessage } = simState;
+
+  // Save result on completion (success or error)
+  useEffect(() => {
+    if (status === 'success' || status === 'error') {
+        const student = AuthController.getCurrentStudent();
+        if (student) {
+            const result = {
+                id: Date.now().toString(),
+                studentId: student.id,
+                studentName: student.fio,
+                taskId: task.id,
+                taskTitle: task.title,
+                status: status,
+                score: status === 'success' ? 5 : 2,
+                inputWord: inputWord,
+                logs: logs,
+                completedAt: new Date().toISOString()
+            };
+            ResultController.saveResult(result);
+        }
+    }
+  }, [status]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

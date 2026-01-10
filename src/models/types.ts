@@ -35,7 +35,14 @@ export interface Task {
 }
 
 export interface Result {
+    id: string;
     studentId: string;
+    studentName: string; // Denormalized for easier display
     taskId: string;
+    taskTitle: string; // Denormalized
+    status: 'success' | 'error';
     score: number;
+    inputWord: string;
+    logs: string[];
+    completedAt: string; // ISO string
 }
