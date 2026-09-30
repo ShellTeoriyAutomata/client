@@ -16,7 +16,7 @@ export interface Group {
     students: Student[];
 }
 
-export type TaskType = 'address' | 'phone' | 'email' | 'custom';
+export type TaskType = 'address' | 'phone' | 'email' | 'custom' | 'grammar-validation';
 
 export interface TaskVariable {
     symbol: string;
@@ -34,6 +34,13 @@ export interface Task {
     template: string;
 }
 
+
+export interface LogSection {
+    title: string;
+    items: string[];
+    isError?: boolean;
+}
+
 export interface Result {
     id: string;
     studentId: string;
@@ -43,6 +50,6 @@ export interface Result {
     status: 'success' | 'error';
     score: number;
     inputWord: string;
-    logs: string[];
+    logs: (string | LogSection)[];
     completedAt: string; // ISO string
 }

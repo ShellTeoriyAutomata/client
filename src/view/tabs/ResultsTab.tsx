@@ -35,9 +35,27 @@ const ResultsTab: React.FC = () => {
             
             <h4>Журнал выполнения:</h4>
             <div style={{ maxHeight: '400px', overflowY: 'auto', background: '#222', padding: '0.5rem', fontFamily: 'monospace', fontSize: '0.9rem' }}>
-                {selectedResult.logs.map((log, i) => (
-                    <div key={i} style={{ borderBottom: '1px solid #444', padding: '2px 0' }}>{log}</div>
-                ))}
+                {selectedResult.logs.map((log, i) => {
+                    if (typeof log === 'string') {
+                        return <div key={i} style={{ borderBottom: '1px solid #444', padding: '2px 0' }}>{log}</div>;
+                    } else {
+                        return (
+                            <details key={i} open style={{ margin: '0.5rem 0', border: '1px solid #555', borderRadius: '4px', padding: '0.5rem' }}>
+                                <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: log.isError ? '#ff8a80' : '#81c784' }}>
+                                    {log.title}
+                                </summary>
+                                <div style={{ paddingLeft: '1rem', marginTop: '0.5rem' }}>
+                                    {log.items.map((item, j) => (
+                                        <div key={j} style={{ borderBottom: '1px solid #444', padding: '2px 0', color: log.isError ? '#ffa726' : '#eee' }}>
+                                            {item}
+                                        </div>
+                                    ))}
+                                    {log.items.length === 0 && <span style={{ color: '#888', fontStyle: 'italic' }}>Нет записей</span>}
+                                </div>
+                            </details>
+                        );
+                    }
+                })}
             </div>
         </div>
       </div>

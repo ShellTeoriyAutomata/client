@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { Task } from '../models/types';
 import { TaskController } from '../controllers/TaskController';
 import StudentTaskView from './StudentTaskView';
+import StudentGrammarTaskView from './StudentGrammarTaskView';
 
 interface StudentDashboardProps {
   onLogout: () => void;
@@ -16,6 +17,9 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ onLogout }) => {
   }, []);
 
   if (selectedTask) {
+    if (selectedTask.type === 'grammar-validation') {
+        return <StudentGrammarTaskView task={selectedTask} onBack={() => setSelectedTask(null)} />;
+    }
     return <StudentTaskView task={selectedTask} onBack={() => setSelectedTask(null)} />;
   }
 
