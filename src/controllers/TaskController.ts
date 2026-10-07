@@ -7,10 +7,11 @@ export class TaskController {
     const savedTasks = localStorage.getItem(STORAGE_KEY);
     const grammarTask: Task = {
       id: 'grammar-test-task',
-      title: 'Тест: Нетерминалы',
-      description: 'Ввод нетерминальных символов (русские буквы).',
+      title: 'Лабораторная: грамматика адреса',
+      description: 'Задайте грамматику и проверьте таблицу: улица — 5–10 букв, дом — 3 цифры, квартира — 2 цифры. _ означает epsilon.',
       deadline: new Date('2026-12-31'),
       type: 'grammar-validation',
+      grammarMode: 'address',
       variables: [],
       template: ''
     };

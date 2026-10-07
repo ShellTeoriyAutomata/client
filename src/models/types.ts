@@ -30,6 +30,8 @@ export interface Task {
     description: string;
     deadline?: Date;
     type: TaskType;
+    /** Отмечает адресную лабораторную; количество и назначения нетерминалов не ограничивает. */
+    grammarMode?: 'address';
     variables: TaskVariable[];
     template: string;
 }
@@ -49,6 +51,12 @@ export interface Result {
     taskTitle: string; // Denormalized
     status: 'success' | 'error';
     score: number;
+    /** Число ошибок студента в лабораторной; отсутствует у старых результатов. */
+    mistakeCount?: number;
+    /** Полная история ошибок студента при вводе и заполнении таблицы. */
+    errorHistory?: string[];
+    /** Соответствует ли проверочное слово грамматике; отдельно от правильности таблицы. */
+    wordAccepted?: boolean;
     inputWord: string;
     logs: (string | LogSection)[];
     completedAt: string; // ISO string

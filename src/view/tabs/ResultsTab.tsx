@@ -1,14 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ResultController } from '../../controllers/ResultController';
 import type { Result } from '../../models/types';
 
 const ResultsTab: React.FC = () => {
-  const [results, setResults] = useState<Result[]>([]);
+  const [results, setResults] = useState<Result[]>(() => ResultController.getResults());
   const [selectedResult, setSelectedResult] = useState<Result | null>(null);
-
-  useEffect(() => {
-    loadResults();
-  }, []);
 
   const loadResults = () => {
     setResults(ResultController.getResults());
@@ -29,6 +25,20 @@ const ResultsTab: React.FC = () => {
         <div style={{ background: '#333', padding: '1rem', borderRadius: '4px', textAlign: 'left' }}>
             <p><strong>Студент:</strong> {selectedResult.studentName}</p>
             <p><strong>Задание:</strong> {selectedResult.taskTitle}</p>
+            {selectedResult.mistakeCount !== undefined && (
+                <p><strong>Количество ошибок:</strong> {selectedResult.mistakeCount}</p>
+            )}
+            {selectedResult.wordAccepted !== undefined && (
+                <p><strong>Проверочное слово:</strong> {selectedResult.wordAccepted ? 'Принято' : 'Отклонено'}</p>
+            )}
+            {selectedResult.errorHistory && (
+                <div>
+                    <h4>Ошибки студента:</h4>
+                    {selectedResult.errorHistory.length ? (
+                        <ol>{selectedResult.errorHistory.map((message, i) => <li key={i}>{message}</li>)}</ol>
+                    ) : <p>Ошибок не было</p>}
+                </div>
+            )}
             <p><strong>Дата:</strong> {new Date(selectedResult.completedAt).toLocaleString()}</p>
             <p><strong>Входное слово:</strong> "{selectedResult.inputWord}"</p>
             <p><strong>Статус:</strong> <span style={{ color: selectedResult.status === 'success' ? '#4caf50' : '#f44336' }}>{selectedResult.status === 'success' ? 'Успех' : 'Ошибка'}</span></p>
@@ -85,6 +95,7 @@ const ResultsTab: React.FC = () => {
                     <div style={{ textAlign: 'left' }}>
                         <div><strong>{result.studentName}</strong></div>
                         <div style={{ fontSize: '0.9rem', color: '#ccc' }}>{result.taskTitle}</div>
+                        <div>Ошибок: {result.mistakeCount ?? 'не сохранено в старом результате'}</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                         <div style={{ color: result.status === 'success' ? '#4caf50' : '#f44336' }}>
