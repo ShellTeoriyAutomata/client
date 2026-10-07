@@ -2,17 +2,21 @@ import React, { useState } from 'react';
 import type { Task, LogSection } from '../models/types';
 import { ResultController } from '../controllers/ResultController';
 import { AuthController } from '../controllers/AuthController';
+import { getNonTerminalErrors, getTerminalErrors, resolveGrammarInputs, simulateGrammar, getTransitionErrors, getGrammarActions } from '../utils/grammarValidation';
+import type { GrammarTransition } from '../utils/grammarValidation';
 
 interface StudentGrammarTaskViewProps {
   task: Task;
   onBack: () => void;
 }
 
+/** Проводит студента через ввод грамматики, симуляцию и проверку таблицы переходов. */
 const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, onBack }) => {
   const [step, setStep] = useState<number>(1);
   const [nonTerminalsRaw, setNonTerminalsRaw] = useState('');
   const [parsedNonTerminals, setParsedNonTerminals] = useState<string[]>([]);
   const [terminalsInputs, setTerminalsInputs] = useState<Record<string, string>>({});
+  const [wordAccepted, setWordAccepted] = useState(false);
   const [templateInput, setTemplateInput] = useState('');
   const [wordInput, setWordInput] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -21,63 +25,40 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
   const [errorLog, setErrorLog] = useState<string[]>([]);
   const [loadingLogs, setLoadingLogs] = useState<string[]>([]); // Logs for loading phase
   const [comparisonLogs, setComparisonLogs] = useState<string[]>([]); // Logs for comparison phase
-  const [showComparisonLogs, setShowComparisonLogs] = useState(false); // Show after table check
 
   // Structured logs for Teacher
   const [step1Logs, setStep1Logs] = useState<string[]>([]);
   const [step2Logs, setStep2Logs] = useState<string[]>([]);
   const [step3Logs, setStep3Logs] = useState<string[]>([]);
+  const [step4Logs, setStep4Logs] = useState<string[]>([]);
 
-  const addError = (msg: string, currentStep: number) => {
-      setMistakeCount(prev => prev + 1);
-      const logMsg = `[${new Date().toLocaleTimeString()}] Ошибка: ${msg}`;
-      setErrorLog(prev => [...prev, logMsg]);
-      setError(msg);
+  const addErrors = (messages: string[], currentStep: number, showMessage = true) => {
+      setMistakeCount(prev => prev + messages.length);
+      const timestamp = new Date().toLocaleTimeString();
+      const logMessages = messages.map(msg => `[${timestamp}] Ошибка: ${msg}`);
+      setErrorLog(prev => [...prev, ...logMessages]);
+      if (showMessage) setError(messages.join('\n'));
 
       if (currentStep === 1) {
-          setStep1Logs(prev => [...prev, logMsg]);
+          setStep1Logs(prev => [...prev, ...logMessages]);
       } else if (currentStep === 2) {
-          setStep2Logs(prev => [...prev, logMsg]);
+          setStep2Logs(prev => [...prev, ...logMessages]);
+      } else if (currentStep === 3) {
+          setStep3Logs(prev => [...prev, ...logMessages]);
       } else {
-          setStep3Logs(prev => [...prev, logMsg]);
+          setStep4Logs(prev => [...prev, ...logMessages]);
       }
   };
 
-  const validateNonTerminal = (symbol: string): boolean => {
-    const s = symbol.trim();
-    if (!s) return false;
-    // Только английские буквы и цифры, начинается с буквы
-    const regex = /^[A-Za-z][A-Za-z0-9*+\-']*$/;
-    return regex.test(s);
-  };
-
-  const validateTerminalPart = (part: string): boolean => {
-    const s = part.trim();
-    if (!s) return false;
-    // Format: "X" or "X-Y". Allowed: Russian chars, Digits.
-    const charClass = "[А-Яа-яЁё0-9]";
-    const rangeRegex = new RegExp(`^${charClass}-${charClass}$`);
-    const singleRegex = new RegExp(`^${charClass}$`);
-    return singleRegex.test(s) || rangeRegex.test(s);
-  };
 
   const handleStep1Submit = () => {
     setError(null);
-    const parts = nonTerminalsRaw.split('\\').map(p => p.trim()).filter(p => p !== '');
-    if (parts.length === 0) {
-        addError('Не введены нетерминалы', 1);
+    const errors = getNonTerminalErrors(nonTerminalsRaw);
+    if (errors.length > 0) {
+        addErrors(errors, 1);
         return;
     }
-    const invalidParts: string[] = [];
-    parts.forEach(part => {
-        if (!validateNonTerminal(part)) {
-            invalidParts.push(part);
-        }
-    });
-    if (invalidParts.length > 0) {
-        addError(`Неверные нетерминалы: ${invalidParts.join(', ')}`, 1);
-        return;
-    }
+    const parts = [...new Set(nonTerminalsRaw.split('\\').map(p => p.trim()).filter(Boolean))];
     // Success Step 1
     setStep1Logs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Успешный ввод нетерминалов: ${parts.join(', ')}`]);
 
@@ -97,28 +78,9 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
   const handleStep2Submit = () => {
       setError(null);
       setSuccess(false);
-      const invalidFields: string[] = [];
-
-      for (const nt of parsedNonTerminals) {
-          const input = terminalsInputs[nt] || '';
-          if (!input.trim()) {
-              invalidFields.push(`Поле для "${nt}" пустое`);
-              continue;
-          }
-          const parts = input.split('\\').map(p => p.trim()).filter(p => p !== '');
-          if (parts.length === 0) {
-              invalidFields.push(`Поле для "${nt}" не содержит значений`);
-              continue;
-          }
-          const badParts = parts.filter(p => !validateTerminalPart(p));
-          if (badParts.length > 0) {
-              invalidFields.push(`В поле "${nt}" ошибки: ${badParts.join(', ')}`);
-          }
-      }
-
-      if (invalidFields.length > 0) {
-          const msg = `Ошибки ввода терминалов:\n${invalidFields.join('\n')}`;
-          addError(msg, 2);
+      const errors = getTerminalErrors(parsedNonTerminals, terminalsInputs);
+      if (errors.length > 0) {
+          addErrors(errors, 2);
           return;
       }
 
@@ -129,274 +91,63 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
       setStep(3);
   };
 
-  interface TableRow {
-      storeSymbol: string;
-      inputSymbol: string;
-  }
-
-  const [tableRows, setTableRows] = useState<TableRow[]>([]);
-  // Use a string key for map "store|input" -> action
+  const [tableRows, setTableRows] = useState<GrammarTransition[]>([]);
   const [userTableAnswers, setUserTableAnswers] = useState<Record<string, string>>({});
-
-  // Пользовательские ошибки с расшифровкой
-  interface CustomError {
-      name: string;
-      description: string;
-  }
-  const [customErrors, setCustomErrors] = useState<CustomError[]>([]);
-  const [newErrorName, setNewErrorName] = useState('');
-  const [newErrorDescription, setNewErrorDescription] = useState('');
+  const [transitionIndex, setTransitionIndex] = useState(0);
+  const [selectedAction, setSelectedAction] = useState('');
+  const [templateTokens, setTemplateTokens] = useState<string[]>([]);
+  const [wordSymbols, setWordSymbols] = useState<string[]>([]);
 
   const handleStep3Submit = () => {
     setError(null);
     setSuccess(false);
-
-    if (!templateInput.trim()) {
-        addError('Шаблон не может быть пустым', 3);
+    const errors = [
+        ...(!templateInput.trim() ? ['Шаблон не может быть пустым'] : []),
+        ...(!wordInput ? ['Введите проверочное слово или _ для epsilon'] : []),
+    ];
+    if (errors.length) {
+        addErrors(errors, 3);
         return;
     }
-
-    if (!wordInput.trim()) {
-        addError('Введите проверочное слово', 3);
-        return;
-    }
-
-    // Tokenize Template and Build Regex
-    const escapeRegExp = (string: string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const sortedNTs = [...parsedNonTerminals].sort((a, b) => b.length - a.length);
-    const tokenRegex = new RegExp(`(${sortedNTs.map(escapeRegExp).join('|')}|[^])`, 'g');
-    const tokens = templateInput.match(tokenRegex) || [];
-    
-    let regexStr = '^';
-    let simTokens: { type: 'NT' | 'T', value: string, regexPart?: string }[] = [];
-
-    for (const token of tokens) {
-        if (parsedNonTerminals.includes(token)) {
-             const defs = terminalsInputs[token].split('\\').map(s => s.trim()).filter(Boolean);
-             const parts = defs.map(d => {
-                 if (/^.-.$/.test(d)) return `[${d}]`; // character class like 0-9
-                 return escapeRegExp(d);
-             });
-             const group = `(${parts.join('|')})`;
-             regexStr += group;
-             simTokens.push({ type: 'NT', value: token, regexPart: group });
-        } else {
-             regexStr += escapeRegExp(token);
-             simTokens.push({ type: 'T', value: token });
-        }
-    }
-    regexStr += '$';
-    
-    try {
-        // Just validate the regex can be created
-        new RegExp(regexStr);
-    } catch (e) {
-        addError('Ошибка при создании проверки шаблона. Проверьте спецсимволы.', 3);
-        return;
-    }
-    
-    // === PHASE 1: Loading the Store (Магазин) ===
-    // Format: (qN, e, symbol) -> (qN+1, e, next_symbol)
-    const loadLogs: string[] = [];
-    loadLogs.push('--- Фаза 1: Загрузка магазина ---');
-    
-    // Build store array from ALL template characters (both T and NT)
-    const storeArray: string[] = [];
-    for (const token of simTokens) {
-        storeArray.push(token.value);
-    }
-    
-    // Generate loading logs
-    // Start with Z0
-    let qState = 0;
-    loadLogs.push(`(q${qState}, ε, Z0) -> (q${qState + 1}, ε, ${storeArray[0] || 'Z0'})`);
-    qState++;
-    
-    // Load each symbol from template (right to left conceptually, but we show left to right)
-    for (let i = 0; i < storeArray.length - 1; i++) {
-        loadLogs.push(`(q${qState}, ε, ${storeArray[i]}) -> (q${qState}, ε, ${storeArray[i + 1]})`);
-    }
-    
-    // Final transition to reading phase
-    if (storeArray.length > 0) {
-        loadLogs.push(`(q${qState}, ε, ${storeArray[storeArray.length - 1]}) -> (q${qState + 1}, *, *) [Переход к чтению]`);
-    }
-    
-    setLoadingLogs(loadLogs);
-    
-    // === Prepare comparison data (but don't show logs yet) ===
-    // Build word array - character by character
-    const wordArray: string[] = wordInput.split('');
-    
-    // Collect unique pairs in order of appearance for the table
-    const encounteredPairsSet = new Set<string>();
-    const orderedPairs: { store: string, input: string }[] = [];
-    
-    // Add Z0 at the end of store for comparison
-    const storeWithZ0 = [...storeArray, 'Z0'];
-    // Add ε at the end of word
-    const wordWithEpsilon = [...wordArray, 'ε'];
-    
-    const maxLen = Math.max(storeWithZ0.length, wordWithEpsilon.length);
-    
-    // Generate comparison logs (will be shown after table is filled correctly)
-    const compLogs: string[] = [];
-    compLogs.push('');
-    compLogs.push('--- Фаза 2: Чтение слова ---');
-    
-    let compQState = qState + 1;
-    let simError = false;
-    let errorType = 0;
-    
-    for (let i = 0; i < maxLen; i++) {
-        const storeChar = i < storeWithZ0.length ? storeWithZ0[i] : 'ε';
-        const wordChar = i < wordWithEpsilon.length ? wordWithEpsilon[i] : 'ε';
-        
-        // Add to table if unique
-        const pairKey = `${storeChar}|${wordChar}`;
-        if (!encounteredPairsSet.has(pairKey)) {
-            encounteredPairsSet.add(pairKey);
-            orderedPairs.push({ store: storeChar, input: wordChar });
-        }
-        
-        // Generate log entry
-        const prevState = compQState;
-        const nextState = compQState + 1;
-        
-        // Check for errors and generate appropriate log
-        if (storeChar === 'Z0' && wordChar === 'ε') {
-            compLogs.push(`(q${prevState}, ${wordChar}, ${storeChar}) -> (q${nextState}, ε, Z0) [Успех: Конец]`);
-            break;
-        } else if (storeChar === 'Z0' && wordChar !== 'ε') {
-            compLogs.push(`(q${prevState}, ${wordChar}, ${storeChar}) -> ОШИБКА 2: Магазин пуст, а слово нет`);
-            simError = true;
-            errorType = 2;
-            break;
-        } else if (storeChar !== 'Z0' && wordChar === 'ε') {
-            compLogs.push(`(q${prevState}, ${wordChar}, ${storeChar}) -> ОШИБКА 3: Слово закончилось, а магазин нет`);
-            simError = true;
-            errorType = 3;
-            break;
-        } else {
-            // Both have characters - check match
-            const tokenObj = simTokens[i];
-            let match = false;
-            
-            if (tokenObj && tokenObj.type === 'NT') {
-                // Check if wordChar is valid for this NT
-                const defs = terminalsInputs[tokenObj.value].split('\\').map(s => s.trim());
-                for (const d of defs) {
-                    if (/^.-.$/.test(d)) {
-                        const regex = new RegExp(`^[${d}]$`);
-                        if (regex.test(wordChar)) {
-                            match = true;
-                            break;
-                        }
-                    } else if (d === wordChar) {
-                        match = true;
-                        break;
-                    }
-                }
-            } else {
-                // Terminal - direct char match
-                match = (storeChar === wordChar);
-            }
-            
-            if (match) {
-                compLogs.push(`(q${prevState}, ${wordChar}, ${storeChar}) -> (q${nextState}, ${wordChar}, ${storeChar}) [pop]`);
-                compQState++;
-            } else {
-                compLogs.push(`(q${prevState}, ${wordChar}, ${storeChar}) -> ОШИБКА 1: Несоответствие`);
-                simError = true;
-                errorType = 1;
-                break;
-            }
-        }
-    }
-    
-    if (simError) {
-        compLogs.push(`--- Симуляция завершена с Ошибкой ${errorType} ---`);
-    } else {
-        compLogs.push('--- Успешное завершение ---');
-    }
-    
-    setComparisonLogs(compLogs);
-    setShowComparisonLogs(false); // Hide until table is correctly filled
-    
-    // Generate Table Rows from orderedPairs (in order of appearance)
-    const newRows: TableRow[] = orderedPairs.map(p => ({
-        storeSymbol: p.store,
-        inputSymbol: p.input
-    }));
-    
-    setTableRows(newRows);
-
+    const simulation = simulateGrammar(templateInput, wordInput, parsedNonTerminals, terminalsInputs);
+    if (simulation.inputErrors.length) addErrors(simulation.inputErrors, 3, false);
+    else setStep3Logs(prev => [...prev, 'Проверочное слово соответствует грамматике']);
+    setWordAccepted(simulation.accepted);
+    setLoadingLogs(simulation.loadingLogs);
+    setComparisonLogs(simulation.comparisonLogs);
+    setTableRows(simulation.rows);
+    setUserTableAnswers({});
+    setTransitionIndex(0);
+    setSelectedAction('');
+    setTemplateTokens(simulation.templateTokens);
+    setWordSymbols(simulation.wordSymbols);
     setStep(4);
   };
 
-  const handleTableInput = (rowKey: string, val: string) => {
-      setUserTableAnswers(prev => ({
-          ...prev,
-          [rowKey]: val
-      }));
+  const handleCheckTransition = () => {
+      const row = tableRows[transitionIndex];
+      if (!row) return;
+      const errors = getTransitionErrors([row], { [row.id]: selectedAction });
+      if (errors.length) {
+          addErrors(errors, 4);
+          return;
+      }
+      setError(null);
+      setUserTableAnswers(prev => ({ ...prev, [row.id]: selectedAction }));
+      setStep4Logs(prev => [...prev,
+          `${row.id}: (${row.inputSymbol}, ${row.storeSymbol}) [${row.context}] → ${selectedAction} (${row.expectedAction}). ${row.message}`]);
+      setTransitionIndex(prev => prev + 1);
+      setSelectedAction('');
   };
 
   const handleStep4Submit = () => {
+      if (transitionIndex !== tableRows.length || !tableRows.length) return;
+      const errors = getTransitionErrors(tableRows, userTableAnswers);
+      if (errors.length) {
+          addErrors(errors, 4);
+          return;
+      }
       setError(null);
-      const invalidFields: string[] = [];
-
-      // Проверка, что хотя бы одна ошибка добавлена
-      if (customErrors.length === 0) {
-          addError('Добавьте хотя бы одну ошибку в конструкторе ошибок', 4);
-          return;
-      }
-
-      // Validate Table Answers
-      tableRows.forEach(row => {
-          const key = `${row.storeSymbol}|${row.inputSymbol}`;
-          const action = userTableAnswers[key];
-          
-          if (!action) {
-              invalidFields.push(`Не выбрано действие для пары (${row.storeSymbol}, ${row.inputSymbol})`);
-              return;
-          }
-
-          // Validation Logic
-          // Case 1: Match (A, A) - должно быть pop
-          if (row.storeSymbol === row.inputSymbol && row.storeSymbol !== 'Z0') {
-               if (action !== 'pop') {
-                   invalidFields.push(`(${row.storeSymbol}, ${row.inputSymbol}): Ожидается 'pop'.`);
-               }
-          }
-          // Case 2: (Z0, Char) -> Store Empty, Input Not Empty - должна быть ошибка
-          else if (row.storeSymbol === 'Z0' && row.inputSymbol !== 'ε') {
-               if (action === 'pop' || action === 'OK' || action === '-') {
-                    invalidFields.push(`(${row.storeSymbol}, ${row.inputSymbol}): Необходимо выбрать ошибку (магазин пуст, а слово нет).`);
-               }
-          }
-          // Case 3: (Char, Empty) -> Store Not Empty, Input Empty - должна быть ошибка
-          else if (row.storeSymbol !== 'Z0' && row.inputSymbol === 'ε') {
-               if (action === 'pop' || action === 'OK' || action === '-') {
-                   invalidFields.push(`(${row.storeSymbol}, ${row.inputSymbol}): Необходимо выбрать ошибку (слово закончилось, а магазин нет).`);
-               }
-          }
-          // Case 4: (Z0, Empty) -> Success
-          else if (row.storeSymbol === 'Z0' && row.inputSymbol === 'ε') {
-                if (action !== 'OK') {
-                    invalidFields.push(`(${row.storeSymbol}, ${row.inputSymbol}): Неверный финал. Ожидается 'OK'.`);
-                }
-          }
-      });
-
-      if (invalidFields.length > 0) {
-          const msg = `Ошибки в таблице:\n${invalidFields.join('\n')}`;
-          addError(msg, 4);
-          return;
-      }
-
-      // Table is correct - show comparison logs
-      setShowComparisonLogs(true);
-      setStep3Logs(prev => [...prev, ...loadingLogs, ...comparisonLogs]);
 
       // Success
       const student = AuthController.getCurrentStudent();
@@ -414,14 +165,14 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
             },
             {
                 title: "Этап 3: Шаблон",
-                items: step3Logs,
+                items: [...step3Logs, ...loadingLogs],
                 isError: step3Logs.some(l => l.includes('Ошибка'))
             },
             {
-                title: "Этап 4: Таблица переходов",
-                // Combine simulation logs + "Table Validated"
-                items: ["Таблица переходов заполнена верно"],
-                isError: false
+                title: "Этап 4: Пошаговая проверка",
+                // Сохраняем только проверенные студентом переходы и итог распознавания.
+                items: [...step4Logs, "Все переходы проверены верно", ...comparisonLogs],
+                isError: step4Logs.some(log => log.includes('Ошибка:'))
             },
             "Задание выполнено успешно"
         ];
@@ -434,13 +185,35 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
             taskTitle: task.title,
             status: 'success',
             score: 5,
-            inputWord: `NT: ${nonTerminalsRaw} | T: ${JSON.stringify(terminalsInputs)} | Template: ${templateInput} | CheckWord: ${wordInput}`,
+            mistakeCount,
+            errorHistory: errorLog,
+            wordAccepted,
+            inputWord: `NT: ${nonTerminalsRaw} | T: ${JSON.stringify(terminalsInputs)} | Template: ${resolvedInputs.template} | CheckWord: ${resolvedInputs.input}`,
             logs: resultLogs,
             completedAt: new Date().toISOString()
         });
         setSuccess(true);
      }
   };
+
+  const resolvedInputs = resolveGrammarInputs(templateInput, wordInput, parsedNonTerminals);
+
+  const currentTransition = tableRows[transitionIndex];
+  const checkedRows = tableRows.slice(0, transitionIndex);
+  const lastChecked = checkedRows.at(-1);
+  const simulationComplete = tableRows.length > 0 && !currentTransition;
+
+  const renderTape = (symbols: string[], index: number, pointerLabel: string, testId: string) => (
+      <div className="grammar-tape" data-testid={testId}>
+          {symbols.map((symbol, position) => (
+              <span key={position} className={`grammar-cell${position === index ? ' is-current' : ''}`}
+                  aria-current={position === index ? 'step' : undefined}>
+                  {position === index && <span className="grammar-pointer" aria-label={pointerLabel} data-index={position}>↓</span>}
+                  <span>{symbol === ' ' ? '␠' : symbol === '_' ? 'ε' : symbol}</span>
+              </span>
+          ))}
+      </div>
+  );
 
   if (success) {
       return (
@@ -450,6 +223,7 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
              <div style={{ 
                 padding: '2rem', 
                 backgroundColor: '#fff', 
+                color: '#222',
                 borderRadius: '8px',
                 boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
             }}>
@@ -470,6 +244,7 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
                             </span>
                         </div>
                         
+                        <p><strong>Проверочное слово:</strong> {wordAccepted ? 'принято' : 'отклонено: ошибки верно определены в таблице'}</p>
                         <div>
                             <strong>Итоговая грамматика:</strong>
                             <div style={{ 
@@ -496,7 +271,7 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
                                 borderRadius: '4px',
                                 fontFamily: 'monospace'
                             }}>
-                                {templateInput}
+                                {resolvedInputs.template}
                             </div>
                         </div>
                     </div>
@@ -533,11 +308,12 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
   }
 
   return (
-    <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'left' }}>
+    <div style={{ maxWidth: step === 4 ? '1100px' : '700px', width: '100%', margin: '0 auto', textAlign: 'left' }}>
       <button onClick={onBack} style={{ marginBottom: '1rem' }}>&larr; Назад</button>
       
       <h2>{task.title}</h2>
       <p>{task.description}</p>
+      <p role="status" aria-live="polite"><strong>Количество ошибок:</strong> {mistakeCount}</p>
       
       {error && (
         <div style={{ 
@@ -558,13 +334,14 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
             <h3>Шаг 1: Ввод нетерминалов</h3>
             <div style={{ marginBottom: '1rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem' }}>
-                Введите нетерминальные символы (разделитель \). Только английские буквы:
+                Введите нетерминальные символы (разделитель \). Только заглавные английские буквы (A–Z):
+                <span style={{ display: 'block' }}>Количество нетерминалов не ограничено. Каждый можно использовать в шаблоне сколько угодно раз.</span>
                 </label>
                 <input 
                 type="text" 
                 value={nonTerminalsRaw}
                 onChange={(e) => setNonTerminalsRaw(e.target.value)}
-                placeholder="Например: X\A\B\NUM"
+                placeholder="Например: A\B\C\NUM"
                 style={{ width: '100%', padding: '0.5rem', fontSize: '1rem', backgroundColor: '#000', color: '#fff', border: '1px solid #444' }}
                 />
             </div>
@@ -580,10 +357,13 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
       {step === 2 && (
         <div>
             <h3>Шаг 2: Ввод терминалов</h3>
-            <p style={{ fontSize: '0.9rem', color: '#666' }}>
+            <p style={{ fontSize: '0.9rem', color: '#bbb' }}>
                 Введите допустимые значения для каждого нетерминала через знак <code>\</code>.
-                <br/>Допустимы диапазоны (например <code>1-9</code>, <code>а-я</code>) или одиночные символы (<code>а</code>, <code>Б</code>).
-                Только русские буквы и цифры.
+                <br/>Русские буквы любого регистра: одиночные символы (<code>а</code>, <code>Б</code>, <code>Ё</code>) или диапазоны (<code>а-я</code>, <code>А-Я</code>).
+                Границы диапазона должны быть одного регистра и идти в алфавитном порядке. Буква Ё включается в диапазоны.
+                <br/>Для номеров разрешены цифры и диапазон <code>0-9</code>. Символ <code>_</code> означает epsilon (пустое значение), а не пробел.
+                <br/>Одно вхождение нетерминала соответствует одному символу или epsilon и создаёт отдельный переход.
+                Для обоих регистров в одном нетерминале задайте <code>а-я\А-Я</code>.
             </p>
             
             <div style={{ display: 'grid', gap: '1rem', marginBottom: '1rem' }}>
@@ -592,11 +372,16 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
                         <div style={{ width: '80px', fontWeight: 'bold', textAlign: 'right' }}>{nt}</div>
                         <input 
                             type="text"
+                            aria-label={`Терминалы ${nt}`}
                             value={terminalsInputs[nt] || ''}
                             onChange={(e) => handleTerminalInputChange(nt, e.target.value)}
-                            placeholder="Например: 1-9\а-б"
-                            style={{ flex: 1, padding: '0.5rem', backgroundColor: '#000', color: '#fff', border: '1px solid #444' }}
+                            placeholder="Например: а-я\Б\Ё"
+                            style={{ flex: 1, minWidth: 0, padding: '0.5rem', backgroundColor: '#000', color: '#fff', border: '1px solid #444' }}
                         />
+                        <button
+                            aria-label={`Русские буквы обоих регистров ${nt}`}
+                            onClick={() => handleTerminalInputChange(nt, 'а-я\\А-Я')}
+                        >а-я и А-Я</button>
                     </div>
                 ))}
             </div>
@@ -634,9 +419,11 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
                 </div>
             </div>
 
-            <p style={{ fontSize: '0.9rem', color: '#666' }}>
-                Создайте шаблон, используя определенные вами нетерминалы ({parsedNonTerminals.join(', ')}) и любые другие символы.
-                <br/>Например: <code>Адрес: УЛ, дом Д</code> (если УЛ и Д ваши нетерминалы).
+            <p style={{ fontSize: '0.9rem', color: '#bbb' }}>
+                Создайте шаблон, используя определенные вами нетерминалы ({parsedNonTerminals.join(', ')}) и буквальные разделители.
+                <br/>Повторяйте нетерминал для каждого символа. Улица содержит 5–10 русских букв любого регистра, дом — 3 цифры, квартира — 2 цифры. Символ _ ничего не добавляет.
+                <br/>Если A = а-я, B = А-Я, C = 0-9, D = 0-9: <code>ул. BAAAA, д. CCC, кв. DD</code> → <code>ул. Лепсе, д. 444, кв. 52</code>.
+                <br/>Можно поменять адрес и последовательность нетерминалов местами: приложение распознает их автоматически.
             </p>
             
             <div style={{ marginBottom: '1rem' }}>
@@ -651,7 +438,7 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
 
             <div style={{ marginBottom: '1rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>Проверочное слово:</label>
-                <p style={{ fontSize: '0.8rem', color: '#666', marginTop: 0 }}>Введите слово, которое должно соответствовать этому шаблону (все нетерминалы заменены на валидные значения).</p>
+                <p style={{ fontSize: '0.8rem', color: '#bbb', marginTop: 0 }}>Введите слово для проверки. Можно вводить короткие и длинные значения, чтобы проверить ошибки. _ — epsilon; пробел вводится обычной клавишей пробела.</p>
                 <textarea 
                     value={wordInput}
                     onChange={(e) => setWordInput(e.target.value)}
@@ -659,6 +446,8 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
                     style={{ width: '100%', minHeight: '80px', padding: '0.5rem', fontSize: '1rem', backgroundColor: '#000', color: '#fff', border: '1px solid #444' }}
                 />
             </div>
+
+            {resolvedInputs.swapped && <p>Шаблон распознан в поле «Проверочное слово», адрес — в поле «Шаблон».</p>}
 
             <div style={{ display: 'flex', gap: '1rem' }}>
                 <button 
@@ -677,229 +466,80 @@ const StudentGrammarTaskView: React.FC<StudentGrammarTaskViewProps> = ({ task, o
         </div>
       )}
 
-       {step === 4 && (
-        <div>
-            <h3>Шаг 4: Симуляция и Таблица переходов</h3>
-            
-            <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#333', color: '#fff', borderRadius: '4px', border: '1px solid #555' }}>
-                <div style={{ marginBottom: '1rem' }}>
-                    <strong>Введенный шаблон:</strong>
-                    <div style={{ fontFamily: 'monospace', marginTop: '0.25rem', color: '#81d4fa' }}>{templateInput}</div>
+      {step === 4 && (
+        <div className="grammar-simulation">
+            <h3>Шаг 4: Пошаговая проверка</h3>
+            <p>Оцените текущую триаду (состояние, символ слова, вершина магазина).
+                Выберите pop, если сопоставление верно, или одну из трёх готовых ошибок.
+                Указатели сдвигаются только после верного ответа.</p>
+            <p className="grammar-progress" aria-live="polite">Проверено переходов: {transitionIndex} из {tableRows.length}</p>
+
+            <div className="grammar-board">
+                <div className="grammar-rail">
+                    <strong>Шаблон</strong>
+                    {renderTape([...templateTokens, 'ε'], currentTransition?.templateIndex ?? templateTokens.length,
+                        'Указатель шаблона', 'grammar-template')}
                 </div>
-                
-                <strong>Справочник нетерминалов:</strong>
-                <div style={{ marginTop: '0.5rem', display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.5rem 1rem', fontSize: '0.9rem' }}>
-                    {parsedNonTerminals.map(nt => (
-                        <React.Fragment key={nt}>
-                            <div style={{ fontWeight: 'bold', textAlign: 'right', color: '#a5d6a7' }}>{nt}</div>
-                            <div>&rarr; {terminalsInputs[nt]}</div>
-                        </React.Fragment>
-                    ))}
+                <div className="grammar-rail">
+                    <strong>Проверочное слово</strong>
+                    {renderTape([...wordSymbols, 'ε'], currentTransition?.inputOffset ?? wordSymbols.length,
+                        'Указатель слова', 'grammar-word')}
                 </div>
-            </div>
-
-            <div style={{ marginBottom: '1.5rem', background: '#000', color: '#fff', padding: '1rem', borderRadius: '4px', fontFamily: 'monospace', maxHeight: '300px', overflowY: 'auto' }}>
-                <strong>Фаза 1: Загрузка магазина</strong>
-                {loadingLogs.map((log, i) => (
-                    <div key={i} style={{ color: log.includes('---') ? '#81d4fa' : '#fff' }}>{log}</div>
-                ))}
-                
-                {showComparisonLogs && (
-                    <>
-                        <div style={{ marginTop: '1rem' }}></div>
-                        <strong>Фаза 2: Чтение слова</strong>
-                        {comparisonLogs.map((log, i) => (
-                            <div key={`comp-${i}`} style={{ 
-                                color: log.includes('ОШИБКА') ? '#ff8a80' : 
-                                       log.includes('Успех') || log.includes('Успешное') ? '#a5d6a7' : 
-                                       log.includes('---') ? '#81d4fa' : '#fff' 
-                            }}>{log}</div>
-                        ))}
-                    </>
-                )}
-                
-                {!showComparisonLogs && (
-                    <div style={{ marginTop: '1rem', color: '#ffcc80', fontStyle: 'italic' }}>
-                        Заполните таблицу правильно, чтобы увидеть фазу чтения слова.
-                    </div>
-                )}
-            </div>
-
-            <h4>Таблица уникальных комбинаций</h4>
-            
-            {/* Раздел для добавления пользовательских ошибок */}
-            <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#1a1a2e', borderRadius: '8px', border: '1px solid #444' }}>
-                <h4 style={{ marginTop: 0, color: '#81d4fa' }}>Конструктор ошибок</h4>
-                <p style={{ fontSize: '0.85rem', color: '#aaa', marginBottom: '1rem' }}>
-                    Добавьте типы ошибок с их расшифровкой. Эти ошибки будут доступны для выбора в таблице.
-                </p>
-                
-                {/* Список существующих ошибок */}
-                {customErrors.length > 0 && (
-                    <div style={{ marginBottom: '1rem' }}>
-                        <strong style={{ color: '#a5d6a7' }}>Ваши ошибки:</strong>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
-                            {customErrors.map((err, idx) => (
-                                <div key={idx} style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    padding: '0.5rem 0.75rem',
-                                    backgroundColor: '#2d3748',
-                                    borderRadius: '4px',
-                                    border: '1px solid #4a5568'
-                                }}>
-                                    <div>
-                                        <span style={{ color: '#ff9800', fontWeight: 'bold' }}>{err.name}</span>
-                                        <span style={{ color: '#888', margin: '0 0.5rem' }}>—</span>
-                                        <span style={{ color: '#ccc' }}>{err.description}</span>
-                                    </div>
-                                    <button
-                                        onClick={() => setCustomErrors(prev => prev.filter((_, i) => i !== idx))}
-                                        style={{
-                                            background: 'none',
-                                            border: 'none',
-                                            color: '#ff6b6b',
-                                            cursor: 'pointer',
-                                            fontSize: '1.2rem',
-                                            padding: '0 0.25rem',
-                                            lineHeight: 1
-                                        }}
-                                        title="Удалить"
-                                    >
-                                        ×
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-                
-                {/* Форма добавления новой ошибки */}
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                    <div style={{ flex: '0 0 120px' }}>
-                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#888', marginBottom: '0.25rem' }}>Название</label>
-                        <input
-                            type="text"
-                            value={newErrorName}
-                            onChange={(e) => setNewErrorName(e.target.value)}
-                            placeholder="Ошибка 1"
-                            style={{
-                                width: '100%',
-                                padding: '0.5rem',
-                                backgroundColor: '#000',
-                                color: '#fff',
-                                border: '1px solid #444',
-                                borderRadius: '4px'
-                            }}
-                        />
-                    </div>
-                    <div style={{ flex: 1, minWidth: '200px' }}>
-                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#888', marginBottom: '0.25rem' }}>Расшифровка</label>
-                        <input
-                            type="text"
-                            value={newErrorDescription}
-                            onChange={(e) => setNewErrorDescription(e.target.value)}
-                            placeholder="Несоответствие символов"
-                            style={{
-                                width: '100%',
-                                padding: '0.5rem',
-                                backgroundColor: '#000',
-                                color: '#fff',
-                                border: '1px solid #444',
-                                borderRadius: '4px'
-                            }}
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter' && newErrorName.trim() && newErrorDescription.trim()) {
-                                    setCustomErrors(prev => [...prev, { name: newErrorName.trim(), description: newErrorDescription.trim() }]);
-                                    setNewErrorName('');
-                                    setNewErrorDescription('');
-                                }
-                            }}
-                        />
-                    </div>
-                    <button
-                        onClick={() => {
-                            if (newErrorName.trim() && newErrorDescription.trim()) {
-                                setCustomErrors(prev => [...prev, { name: newErrorName.trim(), description: newErrorDescription.trim() }]);
-                                setNewErrorName('');
-                                setNewErrorDescription('');
-                            }
-                        }}
-                        style={{
-                            backgroundColor: '#4caf50',
-                            color: 'white',
-                            padding: '0.5rem 1rem',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            height: 'fit-content'
-                        }}
-                    >
-                        Добавить
-                    </button>
+                <div className="grammar-rail">
+                    <strong>Магазин <small>вершина слева</small></strong>
+                    {renderTape(currentTransition?.stack ?? ['ε'], 0, 'Указатель магазина', 'grammar-stack')}
                 </div>
+                <p className="grammar-legend">↓ — текущая позиция; ␠ — пробел; ε — пустой символ; Z0 — дно магазина.
+                    Epsilon не сдвигает указатель слова. На границе поля ε означает его конец.
+                    После верного определения ошибки поля проверка продолжится со следующего поля адреса.</p>
             </div>
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '1.5rem', color: '#fff', backgroundColor: '#222' }}>
-                <thead>
-                    <tr style={{ background: '#444' }}>
-                        <th style={{ border: '1px solid #555', padding: '8px' }}>VT</th>
-                        <th style={{ border: '1px solid #555', padding: '8px' }}>T(Input)</th>
-                        <th style={{ border: '1px solid #555', padding: '8px' }}>Действие</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {tableRows.map((row, idx) => {
-                         const key = `${row.storeSymbol}|${row.inputSymbol}`;
-                         return (
-                            <tr key={idx} style={{ borderBottom: '1px solid #333' }}>
-                                <td style={{ border: '1px solid #555', padding: '8px', textAlign: 'center' }}>
-                                    "{row.storeSymbol}"
-                                </td>
-                                <td style={{ border: '1px solid #555', padding: '8px', textAlign: 'center' }}>
-                                    "{row.inputSymbol}"
-                                </td>
-                                <td style={{ border: '1px solid #555', padding: '8px' }}>
-                                    <select 
-                                        value={userTableAnswers[key] || ''}
-                                        onChange={(e) => handleTableInput(key, e.target.value)}
-                                        style={{ width: '100%', backgroundColor: '#000', color: '#fff', border: '1px solid #555', padding: '4px' }}
-                                    >
-                                        <option value="">Выберите...</option>
-                                        <option value="pop">pop (Сдвиг)</option>
-                                        <option value="-">- (Прочерк)</option>
-                                        {customErrors.length > 0 && (
-                                            <optgroup label="Ошибки">
-                                                {customErrors.map((err, errIdx) => (
-                                                    <option key={errIdx} value={err.name}>{err.name} - {err.description}</option>
-                                                ))}
-                                            </optgroup>
-                                        )}
-                                    </select>
-                                </td>
-                            </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
+            {lastChecked && <p className="grammar-feedback" aria-live="polite">
+                {lastChecked.id}: верно. {lastChecked.message}
+            </p>}
 
-            <div style={{ display: 'flex', gap: '1rem' }}>
-                 <button 
-                    onClick={() => setStep(3)}
-                    style={{ backgroundColor: '#e0e0e0', color: 'black', padding: '0.5rem 1rem', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                >
-                    Назад
-                </button>
-                <button 
-                    onClick={handleStep4Submit}
-                    style={{ backgroundColor: '#2e7d32', color: 'white', padding: '0.5rem 1rem', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                >
-                    Проверить и Сохранить
-                </button>
-            </div>
+            {currentTransition ? (
+                <div className="grammar-current">
+                    <div data-testid="current-triad">
+                        <h4>Текущая триада</h4>
+                        <div className="grammar-triad" aria-live="polite">({currentTransition.id}, "{currentTransition.inputSymbol}", "{currentTransition.storeSymbol}")</div>
+                        <p>{currentTransition.context}</p>
+                    </div>
+                    <label htmlFor="grammar-action">Действие:</label>
+                    <div className="grammar-action-controls">
+                        <select id="grammar-action" aria-label="Действие текущей триады" value={selectedAction}
+                            onChange={event => setSelectedAction(event.target.value)}>
+                            <option value="">Выберите действие...</option>
+                            {getGrammarActions().map(action => <option key={action.value} value={action.value}>{action.label}</option>)}
+                        </select>
+                        <button onClick={handleCheckTransition}>Проверить переход</button>
+                    </div>
+                </div>
+            ) : (
+                <div className="grammar-complete" aria-live="polite">
+                    <strong>Все переходы проверены.</strong>
+                    <p>{wordAccepted ? 'Слово принято.' : 'Слово отклонено. Вы верно определили ошибки.'}</p>
+                    <button onClick={handleStep4Submit}>Завершить и сохранить</button>
+                </div>
+            )}
+
+            <details className="grammar-history" open={simulationComplete}>
+                <summary>Проверенные переходы ({transitionIndex})</summary>
+                <div data-testid="transition-history">
+                    {checkedRows.map(row => <p key={row.id}>
+                        ({row.id}, "{row.inputSymbol}", "{row.storeSymbol}") → {getGrammarActions().find(action => action.value === userTableAnswers[row.id])?.label}
+                        <br/><small>{row.context}: {row.message}</small>
+                    </p>)}
+                </div>
+            </details>
+            <details className="grammar-history">
+                <summary>Справочник нетерминалов и загрузка магазина</summary>
+                {parsedNonTerminals.map(nt => <p key={nt}>{nt} → {terminalsInputs[nt]}</p>)}
+                {loadingLogs.map((log, index) => <div key={index}>{log}</div>)}
+            </details>
+            <button onClick={() => { setError(null); setStep(3); }} style={{ marginTop: '1rem' }}>Назад</button>
         </div>
-       )}
+      )}
 
     </div>
   );
