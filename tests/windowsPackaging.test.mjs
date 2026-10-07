@@ -39,28 +39,41 @@ it('создаёт установщик Windows x64 с постоянными я
   assert.equal(config.build.nsis.artifactName, 'Automata-Setup-${version}.exe');
 });
 
-it('упакованное приложение открывает локальные файлы без сервера и DevTools', async () => {
+it('упакованное приложение открывает локальные файлы без сервера и DevTools', async (t) => {
   const source = await readFile(new URL('../electron/main.cjs', import.meta.url), 'utf8');
-  const calls = [];
-  const app = {
-    isPackaged: true,
-    whenReady: () => Promise.resolve(),
-    on: () => {},
-    quit: () => {},
-  };
-  class BrowserWindow {
-    constructor() {
-      this.webContents = { openDevTools: () => calls.push('devtools'), on: () => {} };
-    }
-    loadURL(value) { calls.push(['url', value]); }
-    loadFile(value) { calls.push(['file', value]); }
+  for (const environment of [
+    {
+      platform: 'linux', paths: path.posix,
+      directory: '/application/electron', expectedFile: '/application/dist/index.html',
+    },
+    {
+      platform: 'win32', paths: path.win32,
+      directory: 'C:\\application\\electron', expectedFile: 'C:\\application\\dist\\index.html',
+    },
+  ]) {
+    await t.test(environment.platform, async () => {
+      const calls = [];
+      const app = {
+        isPackaged: true,
+        whenReady: () => Promise.resolve(),
+        on: () => {},
+        quit: () => {},
+      };
+      class BrowserWindow {
+        constructor() {
+          this.webContents = { openDevTools: () => calls.push('devtools'), on: () => {} };
+        }
+        loadURL(value) { calls.push(['url', value]); }
+        loadFile(value) { calls.push(['file', value]); }
+      }
+      vm.runInNewContext(source, {
+        require: (name) => name === 'electron' ? { app, BrowserWindow } : name === 'path' ? environment.paths : {},
+        __dirname: environment.directory,
+        process: { env: { NODE_ENV: 'development' }, platform: environment.platform },
+        console,
+      });
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(calls, [['file', environment.expectedFile]]);
+    });
   }
-  vm.runInNewContext(source, {
-    require: (name) => name === 'electron' ? { app, BrowserWindow } : name === 'path' ? path : {},
-    __dirname: '/application/electron',
-    process: { env: { NODE_ENV: 'development' }, platform: 'win32' },
-    console,
-  });
-  await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(calls, [['file', '/application/dist/index.html']]);
 });
