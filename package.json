@@ -5,6 +5,7 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
+    "test": "node tests/run.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
