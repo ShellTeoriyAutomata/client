@@ -1,14 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import type { Group } from '../../models/types';
 import { GroupController } from '../../controllers/GroupController';
 
 const AddGroupsTab: React.FC = () => {
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [groups, setGroups] = useState<Group[]>(() => GroupController.getGroups());
   const [newGroupName, setNewGroupName] = useState('');
-
-  useEffect(() => {
-    setGroups(GroupController.getGroups());
-  }, []);
 
   const handleAddGroup = (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,189 +1,127 @@
-import type { Task } from '../models/types';
+import type { GrammarDefinition } from '../models/types';
+import { GrammarController } from './GrammarController';
 
 export type SimulationStatus = 'idle' | 'loading' | 'running' | 'success' | 'error';
 
 export interface SimulationState {
   stack: string[];
   templateIndex: number;
+  inputIndex: number;
+  loadingIndex: number;
   status: SimulationStatus;
   logs: string[];
   errorMessage: string;
-  inputRemaining: string; // For display in logs
-  currentStateIndex: number; // q0, q1, q2...
+  errors: string[];
+  inputWord: string;
+  inputRemaining: string;
+  currentStateIndex: number;
 }
 
 export class SimulationController {
-  private task: Task;
+  private readonly grammar: GrammarDefinition;
   private state: SimulationState;
 
-  constructor(task: Task) {
-    this.task = task;
-    this.state = {
-      stack: ['Z0'],
-      templateIndex: 0,
-      status: 'idle',
-      logs: [],
-      errorMessage: '',
-      inputRemaining: '',
-      currentStateIndex: 0
-    };
+  /** Create an isolated attempt from the student's grammar. */
+  constructor(grammar: GrammarDefinition) {
+    this.grammar = GrammarController.createGrammar(grammar.variables, grammar.template, grammar.alphabet);
+    this.state = this.initialState('', 'idle');
   }
 
+  /** Return a snapshot safe for React and callers to retain or modify. */
   public getState(): SimulationState {
-    return { ...this.state };
+    return { ...this.state, stack: [...this.state.stack], logs: [...this.state.logs], errors: [...this.state.errors] };
   }
 
-  public start(inputWord: string): void {
-    this.state = {
-      stack: ['Z0'],
-      templateIndex: 0,
-      status: 'loading',
-      logs: [],
-      errorMessage: '',
-      inputRemaining: inputWord,
-      currentStateIndex: 0
-    };
-    // Initial state log is not needed as per user request example, 
-    // but we can keep a simple start message or just wait for the first loadChar
+  /** Begin comparing the submitted word; input mistakes and grades belong to the preparation stage. */
+  public start(inputWord: string): SimulationState {
+    this.state = this.initialState(inputWord, 'loading');
+    if (this.state.loadingIndex < 0) this.beginMatching();
+    return this.getState();
   }
 
-  public loadChar(char: string, remainingAfter: string) {
-    // Loading phase: q0 -> q1 -> q1 ...
-    // Actually user example shows:
-    // (q0,e,Z0) -> (q1,e,y)  -- First char load? No, wait.
-    // The user example:
-    // (q0,e,Z0) -> (q1,e,y)
-    // (q1,e,y) -> (q1,e,y)
-    // It seems q0 is initial, then it goes to q1 and stays in q1 while loading.
-    
-    const oldState = this.state.currentStateIndex === 0 ? 'q0' : 'q1';
-    const newState = 'q1';
-    
-    // Left-sided stack: add to the beginning (top)
-    // But wait, the user example: (q1,e,y) -> (q1,e,x)
-    // It shows the stack TOP changing.
-    
-    const charDisplay = char === ' ' ? ' ' : char;
-    const oldTop = this.state.stack[0] === 'Z0' ? 'Z0' : this.state.stack[0];
-    
-    this.state.stack = [char, ...this.state.stack];
-    this.state.inputRemaining = remainingAfter;
+  /** Push the next template symbol; matching starts only after the whole template is loaded. */
+  public loadNext(): SimulationState {
+    if (this.state.status !== 'loading') return this.getState();
+    const char = Array.from(this.grammar.template)[this.state.loadingIndex];
+    const before = this.configuration(`q${this.state.currentStateIndex}`, '_');
+    this.state.stack.unshift(char);
+    this.state.loadingIndex -= 1;
     this.state.currentStateIndex = 1;
-    
-    const newTop = charDisplay;
-    
-    // Format: (q_old, e, old_top) -> (q_new, e, new_top)
-    // Note: The user example has 'e' (epsilon) in the input position for loading?
-    // (q0,e,Z0) -> (q1,e,y)
-    // This implies input is consumed or ignored during loading in this notation?
-    // Let's follow the user's format exactly.
-    
-    this.addLog(`(${oldState},e,${oldTop}) -> (${newState},e,${newTop})`);
+    this.state.logs.push(`${before} → ${this.configuration('q1', '_')}`);
+    if (this.state.loadingIndex < 0) {
+      this.beginMatching();
+    }
+    return this.getState();
   }
 
-  public setStack(stack: string[]) {
-    this.state.stack = stack;
-  }
-
-  public setStatus(status: SimulationStatus) {
-    this.state.status = status;
-  }
-
-  public addLog(message: string) {
-    this.state.logs = [...this.state.logs, message];
-  }
-
+  /** Match the current input symbol with the template symbol at the top of the stack. */
   public tick(): SimulationState {
-    if (this.state.status !== 'running') return this.state;
-
-    const { stack, templateIndex, currentStateIndex } = this.state;
-    const currentStack = [...stack];
-    const char = currentStack.shift(); // First element is top (left-sided stack)
-
-    // Check if we hit Z0
-    if (char === 'Z0') {
-        if (templateIndex >= this.task.template.length) {
-            this.state.status = 'success';
-            // Final transition to qf
-            this.addLog(`(q${currentStateIndex},e,Z0) -> (qf,e,Z0)`);
-            return this.state;
-        } else {
-            this.state.status = 'error';
-            this.state.errorMessage = 'Ошибка: Магазин пуст (Z0), но шаблон не закончен.';
-            this.addLog(this.state.errorMessage);
-            return this.state;
-        }
+    if (this.state.status !== 'running') return this.getState();
+    const word = Array.from(this.state.inputWord);
+    const top = this.state.stack[0];
+    const char = word[this.state.inputIndex];
+    if (top === 'Z0') {
+      if (char === undefined) this.succeed();
+      else this.fail(`Шаблон закончился: лишний символ входного слова «${this.display(char)}» (позиция ${this.state.inputIndex + 1}), вершина стека — Z0.`);
+      return this.getState();
     }
-
-    // Error: Template finished but stack remains (and it's not Z0)
-    if (templateIndex >= this.task.template.length) {
-      this.state.status = 'error';
-      this.state.errorMessage = 'Ошибка: Шаблон закончен, но в магазине остались символы.';
-      this.addLog(this.state.errorMessage);
-      return this.state;
+    if (char === undefined) {
+      this.fail(`Входное слово закончилось: для символа стека «${this.display(top)}» нет входного символа (позиция ${this.state.templateIndex + 1}).`);
+      return this.getState();
     }
-
-    const tplChar = this.task.template[templateIndex];
-    const charDisplay = char === ' ' ? ' ' : char;
-    const tplCharDisplay = tplChar === ' ' ? ' ' : tplChar;
-
-    let isMatch = false;
-    const variable = this.task.variables.find(v => v.symbol === tplChar);
-
-    if (variable) {
-      try {
-        let regex;
-        if (variable.allowedValues.includes(',')) {
-          // It's a comma-separated list: л,е,п,с -> (л|е|п|с)
-          const allowedChars = variable.allowedValues.split(',').map(c => c.trim());
-          regex = new RegExp(`^(${allowedChars.join('|')})$`, 'i');
-        } else {
-          // It's a range or character class: а-я, 0-9 -> [а-я], [0-9]
-          regex = new RegExp(`^[${variable.allowedValues}]$`, 'i');
-        }
-        
-        if (char && regex.test(char)) {
-          isMatch = true;
-        }
-      } catch (e) {
-        this.addLog(`Ошибка regex: ${e}`);
-      }
-    } else {
-      if (char === tplChar) {
-        isMatch = true;
-      }
+    const variable = this.grammar.variables.find(item => item.symbol === top && /^[A-Z]$/.test(item.symbol));
+    const matched = top === GrammarController.universalSymbol ||
+      (variable ? GrammarController.matches(char, variable.allowedValues, this.grammar.variables) : char === top);
+    if (!matched) {
+      this.fail(`Символ слова «${this.display(char)}» не соответствует символу шаблона «${this.display(top)}» (позиция ${this.state.inputIndex + 1}).`);
+      return this.getState();
     }
+    const before = this.configuration(`q${this.state.currentStateIndex}`, this.display(char));
+    this.state.stack.shift();
+    this.state.inputIndex += 1;
+    this.state.templateIndex += 1;
+    this.state.inputRemaining = word.slice(this.state.inputIndex).join('');
+    this.state.currentStateIndex += 1;
+    this.state.logs.push(`${before} → ${this.configuration(`q${this.state.currentStateIndex}`, this.inputSymbol())}`);
+    if (this.state.stack[0] === 'Z0' && this.state.inputIndex === word.length) this.succeed();
+    return this.getState();
+  }
 
-    const oldState = `q${currentStateIndex}`;
-    const newState = `q${currentStateIndex + 1}`;
+  private initialState(inputWord: string, status: SimulationStatus): SimulationState {
+    return { stack: ['Z0'], templateIndex: 0, inputIndex: 0,
+      loadingIndex: Array.from(this.grammar.template).length - 1, status, logs: [], errorMessage: '', errors: [],
+      inputWord, inputRemaining: inputWord, currentStateIndex: 0 };
+  }
 
-    if (isMatch) {
-      this.state.stack = currentStack;
-      this.state.templateIndex = templateIndex + 1;
-      this.state.currentStateIndex = currentStateIndex + 1;
-      
-      // Prepare next chars for display
-      const nextStackChar = this.state.stack.length > 0 ? this.state.stack[0] : 'ε';
-      const nextStackCharDisplay = nextStackChar === ' ' ? ' ' : nextStackChar;
-      
-      const nextTplIndex = templateIndex + 1;
-      const nextTplChar = nextTplIndex < this.task.template.length ? this.task.template[nextTplIndex] : 'ε';
-      const nextTplCharDisplay = nextTplChar === ' ' ? ' ' : nextTplChar;
+  private beginMatching(): void {
+    const before = this.configuration(`q${this.state.currentStateIndex}`, '_');
+    this.state.status = 'running';
+    this.state.currentStateIndex = 2;
+    this.state.logs.push('магазин заполнен');
+    this.state.logs.push(`${before} → ${this.configuration('q2', this.inputSymbol())}`);
+  }
 
-      // Format: (q_old, stack_char, template_char) -> (q_new, next_stack_char, next_template_char)
-      this.addLog(`(${oldState},${charDisplay},${tplCharDisplay}) -> (${newState},${nextStackCharDisplay},${nextTplCharDisplay})`);
+  private fail(message?: string): void {
+    const input = this.state.status === 'loading' ? '_' : this.inputSymbol();
+    this.state.logs.push(`${this.configuration(`q${this.state.currentStateIndex}`, input)} → ${this.configuration('qerror', input)}`);
+    this.state.status = 'error';
+    this.state.errorMessage = message ?? '';
+  }
 
-      // Check for immediate success if Z0 is next
-      if (this.state.stack.length === 1 && this.state.stack[0] === 'Z0' && this.state.templateIndex >= this.task.template.length) {
-        this.state.status = 'success';
-        this.addLog(`(${newState},e,Z0) -> (qf,e,Z0)`);
-      }
-    } else {
-      this.state.status = 'error';
-      this.state.errorMessage = `Ошибка: Символ '${charDisplay}' не соответствует ожидаемому '${tplCharDisplay}'`;
-      this.addLog(`(${oldState},${charDisplay},${tplCharDisplay}) - Ошибка несоответствия`);
-    }
+  private succeed(): void {
+    this.state.status = 'success';
+    this.state.logs.push(`${this.configuration(`q${this.state.currentStateIndex}`, '_')} → ${this.configuration('qf', '_')}`);
+  }
 
-    return this.state;
+  private display(char: string): string {
+    return char === ' ' ? '␣' : char;
+  }
+
+  private inputSymbol(): string {
+    return this.display(Array.from(this.state.inputWord)[this.state.inputIndex] ?? '_');
+  }
+
+  private configuration(state: string, input: string): string {
+    return `(${state}, ${input}, ${this.display(this.state.stack[0] ?? '_')})`;
   }
 }

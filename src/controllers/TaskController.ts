@@ -1,34 +1,32 @@
 import type { Task } from '../models/types';
-
-const STORAGE_KEY = 'tasks';
+import type { StoragePort } from '../models/StoragePort';
 
 export class TaskController {
-  static getTasks(): Task[] {
-    const savedTasks = localStorage.getItem(STORAGE_KEY);
-    if (!savedTasks) return [];
+  /** Read assignments, including older records whose grammar belonged to the teacher. */
+  static getTasks(storage?: StoragePort): Task[] {
     try {
-      const parsed = JSON.parse(savedTasks);
-      return parsed.map((t: any) => ({
-        ...t,
-        deadline: t.deadline ? new Date(t.deadline) : undefined
-      }));
-    } catch (e) {
-      console.error("Failed to load tasks", e);
+      const parsed: unknown = JSON.parse((storage ?? localStorage).getItem('tasks') ?? '[]');
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((item): item is Task =>
+        item !== null && typeof item === 'object' && typeof item.id === 'string' &&
+        typeof item.title === 'string' && typeof item.description === 'string'
+      ).map(({ id, title, description }) => ({ id, title, description }));
+    } catch {
       return [];
     }
   }
 
-  static saveTask(task: Task): Task[] {
-    const tasks = this.getTasks();
-    const updatedTasks = [...tasks, task];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedTasks));
-    return updatedTasks;
+  /** Save the title and description; grammar is supplied separately by each student. */
+  static saveTask(task: Task, storage: StoragePort = localStorage): Task[] {
+    const updated = [...this.getTasks(storage), { id: task.id, title: task.title, description: task.description }];
+    storage.setItem('tasks', JSON.stringify(updated));
+    return updated;
   }
 
-  static deleteTask(taskId: string): Task[] {
-    const tasks = this.getTasks();
-    const updatedTasks = tasks.filter(t => t.id !== taskId);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedTasks));
-    return updatedTasks;
+  /** Remove an assignment while leaving submitted attempt snapshots intact. */
+  static deleteTask(taskId: string, storage: StoragePort = localStorage): Task[] {
+    const updated = this.getTasks(storage).filter(task => task.id !== taskId);
+    storage.setItem('tasks', JSON.stringify(updated));
+    return updated;
   }
 }
