@@ -152,6 +152,7 @@ export default function StudentTaskView({ task, onBack }: StudentTaskViewProps) 
   const templateChars = Array.from(attempt?.grammar.template ?? '');
   const display = (char: string) => char === ' ' ? '␣' : char;
   const solution = attempt?.grammar ?? GrammarController.createGrammar(variables, template, alphabet);
+  const grade = preparation.getGrade();
 
   return (
     <div className="container dashboard student-task">
@@ -185,10 +186,10 @@ export default function StudentTaskView({ task, onBack }: StudentTaskViewProps) 
             </section>
             <section className="logs-panel"><h3>Журнал переходов</h3><div className="simulation-logs" ref={logsRef}>{simState.logs.map((log, index) => <div key={index}>{log}</div>)}</div></section>
           </div>
-          {!active && <CompletionPanel key={attempt?.id} saved={saved} passed={preparation.getGrade().passed} canEdit={!pendingResult} onEdit={returnToEditing} />}
+          {!active && <CompletionPanel key={attempt?.id} saved={saved} passed={grade.passed} score={grade.score} maxScore={grade.maxScore} canEdit={!pendingResult} onEdit={returnToEditing} />}
         </div>
       )}
-      {failed && <FailureDialog saved={saved} error={error} onRetry={pendingResult ? retrySave : undefined} onBack={onBack} />}
+      {failed && <FailureDialog saved={saved} score={grade.score} maxScore={grade.maxScore} error={error} onRetry={pendingResult ? retrySave : undefined} onBack={onBack} />}
       {!failed && error && <p className="error-text" role="alert">{error}</p>}
       {!failed && pendingResult && <button onClick={retrySave}>Повторить сохранение результата</button>}
     </div>

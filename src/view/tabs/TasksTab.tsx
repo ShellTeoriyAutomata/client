@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { TaskController } from '../../controllers/TaskController';
+import { BrowserFileDownload } from '../../adapters/BrowserFileDownload';
 
 interface TasksTabProps {
   onViewResults: (taskId: string) => void;
@@ -37,6 +38,15 @@ export default function TasksTab({ onViewResults }: TasksTabProps) {
     }
   }
 
+  function handleExportTasks() {
+    try {
+      TaskController.exportTasks(new BrowserFileDownload());
+      setError('');
+    } catch {
+      setError('Не удалось экспортировать задания.');
+    }
+  }
+
   return (
     <section>
       <h3>Новое задание</h3>
@@ -54,6 +64,9 @@ export default function TasksTab({ onViewResults }: TasksTabProps) {
         <button type="submit">Создать задание</button>
       </form>
       <h3>Задания ({tasks.length})</h3>
+      <div className="actions">
+        <button type="button" className="secondary-button" onClick={handleExportTasks} disabled={tasks.length === 0}>Экспорт заданий</button>
+      </div>
       {tasks.length === 0 ? <p className="muted">Заданий пока нет.</p> : tasks.map(task => (
         <article key={task.id} className="list-item">
           <div><strong>{task.title}</strong><p className="description">{task.description}</p></div>

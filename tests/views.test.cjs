@@ -12,6 +12,7 @@ require('node:test')('teacher opens assignments without grammar fields or settin
   assert.match(html, /Название задания/);
   assert.match(html, /Описание/);
   assert.match(html, /Результаты/);
+  assert.match(html, /Экспорт заданий/);
   assert.doesNotMatch(html, /Нетерминал|Терминальные символы|Тип шаблона|Настройки/);
 });
 
@@ -140,13 +141,18 @@ require('node:test')('completion lets the student return to editing after saving
   const CompletionPanel = require(require('node:path').join(process.env.AUTOMATA_TEST_BUILD, 'view/CompletionPanel.js')).default;
   const React = require('react');
   let edited = false;
-  const props = { passed: true, errors: ['Ошибка'], saved: true, canEdit: true, onEdit() { edited = true; } };
+  const props = { passed: true, score: 95, maxScore: 100, errors: ['Ошибка'], saved: true, canEdit: true, onEdit() { edited = true; } };
   const html = render('CompletionPanel', props);
   assert.doesNotMatch(html, /Отчёт о выполнении|Журнал ошибок|Ошибка/);
   assert.match(html, /Вернуться к редактированию/);
   assert.match(html, /Результат сохранён/);
   assert.match(html, /Вы справились с работой/);
-  assert.match(render('CompletionPanel', { ...props, passed: false }), /Вы не справились с работой/);
+  assert.match(html, /Ваш балл:.*95 \/ 100/);
+  const failed = render('CompletionPanel', { ...props, passed: false, score: 45 });
+  assert.match(failed, /Вы не справились с работой/);
+  assert.match(failed, /Ваш балл:.*45 \/ 100/);
+  assert.match(render('CompletionPanel', { ...props, score: 100 }), /Ваш балл:.*100 \/ 100/);
+  assert.match(render('CompletionPanel', { ...props, score: 50 }), /Ваш балл:.*50 \/ 100/);
   const elements = React.Children.toArray(CompletionPanel(props).props.children);
   const button = elements.find(element => element.type === 'button');
   assert.equal(button.props.disabled, false);
@@ -155,6 +161,7 @@ require('node:test')('completion lets the student return to editing after saving
   const pending = render('CompletionPanel', { ...props, saved: false, canEdit: false });
   assert.match(pending, /<button[^>]*disabled=""/);
   assert.match(pending, /Сначала сохраните результат/);
+  assert.match(pending, /Ваш балл:.*95 \/ 100/);
 });
 
 require('node:test')('teacher receives input penalties and a grade independently of a nonmatching word', () => {
@@ -211,7 +218,10 @@ require('node:test')('teacher result shows the saved full template next to the i
 
 require('node:test')('early failure dialog stops the attempt without showing mistake details', () => {
   const assert = require('node:assert/strict');
-  const html = render('FailureDialog', { saved: true, onBack() {} });
+  const html = render('FailureDialog', { saved: true, score: 45, maxScore: 100, onBack() {} });
+  assert.match(html, /Ваш балл:.*45 \/ 100/);
+  const pending = render('FailureDialog', { saved: false, score: 0, maxScore: 100, onBack() {} });
+  assert.match(pending, /Ваш балл:.*0 \/ 100/);
   assert.match(html, /role="alertdialog"/);
   assert.match(html, /aria-modal="true"/);
   assert.match(html, /Вы не справились с работой/);

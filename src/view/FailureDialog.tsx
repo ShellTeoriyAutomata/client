@@ -2,13 +2,15 @@ import { useEffect, useRef, type KeyboardEvent } from 'react';
 
 interface FailureDialogProps {
   saved: boolean;
+  score: number;
+  maxScore: number;
   error?: string;
   onRetry?: () => void;
   onBack: () => void;
 }
 
-/** End an input attempt immediately when its grade drops below fifty. */
-export default function FailureDialog({ saved, error, onRetry, onBack }: FailureDialogProps) {
+/** End an input attempt immediately when its grade drops below fifty and show the final score. */
+export default function FailureDialog({ saved, score, maxScore, error, onRetry, onBack }: FailureDialogProps) {
   const dialogRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -28,6 +30,7 @@ export default function FailureDialog({ saved, error, onRetry, onBack }: Failure
   return <div className="failure-overlay">
     <section ref={dialogRef} tabIndex={-1} className="failure-dialog" role="alertdialog" aria-modal="true" aria-labelledby="failure-heading" onKeyDown={keepFocus}>
       <h2 id="failure-heading">Вы не справились с работой</h2>
+      <p>Ваш балл: <strong>{score} / {maxScore}</strong></p>
       {saved && <p>Результат сохранён и доступен преподавателю.</p>}
       {error && <p className="error-text" role="alert">{error}</p>}
       {onRetry && <button type="button" onClick={onRetry}>Повторить сохранение результата</button>}

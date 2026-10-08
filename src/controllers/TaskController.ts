@@ -1,19 +1,30 @@
 import type { Task } from '../models/types';
 import type { StoragePort } from '../models/StoragePort';
+import type { FileDownloadPort } from '../models/FileDownloadPort';
+import bundledTasks from '../data/default-tasks.json';
 
 export class TaskController {
-  /** Read assignments, including older records whose grammar belonged to the teacher. */
-  static getTasks(storage?: StoragePort): Task[] {
+  /** Read assignments; initialize bundled defaults only when storage has no tasks key. */
+  static getTasks(storage?: StoragePort, initialTasks: readonly Task[] = bundledTasks): Task[] {
     try {
-      const parsed: unknown = JSON.parse((storage ?? localStorage).getItem('tasks') ?? '[]');
+      const store = storage ?? localStorage;
+      const saved = store.getItem('tasks');
+      const parsed: unknown = saved === null ? initialTasks : JSON.parse(saved);
       if (!Array.isArray(parsed)) return [];
-      return parsed.filter((item): item is Task =>
+      const tasks = parsed.filter((item): item is Task =>
         item !== null && typeof item === 'object' && typeof item.id === 'string' &&
         typeof item.title === 'string' && typeof item.description === 'string'
       ).map(({ id, title, description }) => ({ id, title, description }));
+      if (saved === null) store.setItem('tasks', JSON.stringify(tasks));
+      return tasks;
     } catch {
       return [];
     }
+  }
+
+  /** Export assignments for bundling without student results or local preferences. */
+  static exportTasks(download: FileDownloadPort, storage?: StoragePort): void {
+    download.saveFile('default-tasks.json', JSON.stringify(this.getTasks(storage), null, 2) + '\n', 'application/json');
   }
 
   /** Save the title and description; grammar is supplied separately by each student. */

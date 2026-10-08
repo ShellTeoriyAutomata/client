@@ -11,7 +11,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "electron": "concurrently \"npm run dev\" \"wait-on tcp:5173 && cross-env NODE_ENV=development electron .\"",
-    "electron:pack": "npm run build && electron-builder"
+    "electron:pack": "npm run build && electron-builder",
+    "electron:pack:win": "npm test && npm run build && electron-builder --win nsis --x64 --publish never",
+    "tasks:bundle": "node scripts/bundle-tasks.cjs"
   },
   "build": {
     "appId": "com.automata.app",
@@ -25,7 +27,15 @@
       "package.json"
     ],
     "win": {
-      "target": "nsis"
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
     }
   },
   "dependencies": {

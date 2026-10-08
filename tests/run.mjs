@@ -10,7 +10,7 @@ function run() {
     const controllers = readdirSync('src/controllers').filter(name => name.endsWith('.ts'));
     execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '--outDir', directory,
       '--rootDir', 'src', '--target', 'ES2022', '--module', 'commonjs', '--moduleResolution', 'node',
-      '--skipLibCheck', '--strict', '--jsx', 'react-jsx', '--esModuleInterop',
+      '--skipLibCheck', '--strict', '--jsx', 'react-jsx', '--esModuleInterop', '--resolveJsonModule',
       'src/App.tsx', ...controllers.map(name => `src/controllers/${name}`)], { stdio: 'inherit' });
     const suite = readdirSync('tests').filter(name => name.endsWith('.test.cjs'));
     for (const name of suite) {
