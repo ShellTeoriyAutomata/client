@@ -43,11 +43,11 @@ export class SimulationController {
   public loadNext(): SimulationState {
     if (this.state.status !== 'loading') return this.getState();
     const char = Array.from(this.grammar.template)[this.state.loadingIndex];
-    const before = this.configuration(`q${this.state.currentStateIndex}`, '_');
+    const before = this.configuration(`q${this.state.currentStateIndex}`, 'ε');
     this.state.stack.unshift(char);
     this.state.loadingIndex -= 1;
     this.state.currentStateIndex = 1;
-    this.state.logs.push(`${before} → ${this.configuration('q1', '_')}`);
+    this.state.logs.push(`${before} → ${this.configuration('q1', 'ε')}`);
     if (this.state.loadingIndex < 0) {
       this.beginMatching();
     }
@@ -94,7 +94,7 @@ export class SimulationController {
   }
 
   private beginMatching(): void {
-    const before = this.configuration(`q${this.state.currentStateIndex}`, '_');
+    const before = this.configuration(`q${this.state.currentStateIndex}`, 'ε');
     this.state.status = 'running';
     this.state.currentStateIndex = 2;
     this.state.logs.push('магазин заполнен');
@@ -102,15 +102,15 @@ export class SimulationController {
   }
 
   private fail(message?: string): void {
-    const input = this.state.status === 'loading' ? '_' : this.inputSymbol();
-    this.state.logs.push(`${this.configuration(`q${this.state.currentStateIndex}`, input)} → ${this.configuration('qerror', input)}`);
+    const input = this.state.status === 'loading' ? 'ε' : this.inputSymbol();
+    this.state.logs.push(`${this.configuration(`q${this.state.currentStateIndex}`, input)} → ${this.configuration('qERR', input)}`);
     this.state.status = 'error';
     this.state.errorMessage = message ?? '';
   }
 
   private succeed(): void {
     this.state.status = 'success';
-    this.state.logs.push(`${this.configuration(`q${this.state.currentStateIndex}`, '_')} → ${this.configuration('qf', '_')}`);
+    this.state.logs.push(`${this.configuration(`q${this.state.currentStateIndex}`, 'ε')} → ${this.configuration('qf', 'ε')}`);
   }
 
   private display(char: string): string {
@@ -118,10 +118,10 @@ export class SimulationController {
   }
 
   private inputSymbol(): string {
-    return this.display(Array.from(this.state.inputWord)[this.state.inputIndex] ?? '_');
+    return this.display(Array.from(this.state.inputWord)[this.state.inputIndex] ?? 'ε');
   }
 
   private configuration(state: string, input: string): string {
-    return `(${state}, ${input}, ${this.display(this.state.stack[0] ?? '_')})`;
+    return `(${state}, ${input}, ${this.display(this.state.stack[0] ?? 'ε')})`;
   }
 }

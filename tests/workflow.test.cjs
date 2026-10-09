@@ -40,7 +40,7 @@ require('node:test')('template loads into the stack before any word matching', (
   assert.equal(simulation.getState().inputRemaining, '1+2');
   assert.equal(simulation.getState().status, 'running');
   assert.equal(simulation.getState().currentStateIndex, 2);
-  assert.deepEqual(simulation.getState().logs.slice(-2), ['магазин заполнен', '(q1, _, D) → (q2, 1, D)']);
+  assert.deepEqual(simulation.getState().logs.slice(-2), ['магазин заполнен', '(q1, ε, D) → (q2, 1, D)']);
   simulation.tick();
   assert.equal(simulation.getState().inputIndex, 1);
   assert.equal(simulation.getState().templateIndex, 1);
@@ -191,23 +191,23 @@ require('node:test')('logs mark the filled stack and start matching in q2', () =
   simulation.tick();
   simulation.tick();
   assert.deepEqual(simulation.getState().logs, [
-    '(q0, _, Z0) → (q1, _, S)',
-    '(q1, _, S) → (q1, _, D)',
+    '(q0, ε, Z0) → (q1, ε, S)',
+    '(q1, ε, S) → (q1, ε, D)',
     'магазин заполнен',
-    '(q1, _, D) → (q2, 7, D)',
+    '(q1, ε, D) → (q2, 7, D)',
     '(q2, 7, D) → (q3, !, S)',
-    '(q3, !, S) → (q4, _, Z0)',
-    '(q4, _, Z0) → (qf, _, Z0)',
+    '(q3, !, S) → (q4, ε, Z0)',
+    '(q4, ε, Z0) → (qf, ε, Z0)',
   ]);
   simulation.start('a!');
   simulation.loadNext();
   simulation.loadNext();
   simulation.tick();
-  assert.equal(simulation.getState().logs.at(-1), '(q2, a, D) → (qerror, a, D)');
+  assert.equal(simulation.getState().logs.at(-1), '(q2, a, D) → (qERR, a, D)');
   assert.notEqual(simulation.getState().errorMessage, '');
   for (const [word, transition] of [
-    ['7', '(q3, _, S) → (qerror, _, S)'],
-    ['7!!', '(q4, !, Z0) → (qerror, !, Z0)'],
+    ['7', '(q3, ε, S) → (qERR, ε, S)'],
+    ['7!!', '(q4, !, Z0) → (qERR, !, Z0)'],
   ]) {
     simulation.start(word);
     while (simulation.getState().status === 'loading') simulation.loadNext();
@@ -235,14 +235,14 @@ require('node:test')('joined and separated braced sets describe the same alphabe
   assert.equal(GrammarController.matches('}', '{\\{\\}}'), true);
 });
 
-require('node:test')('qerror explains the offending symbol and preserves the failed configuration', () => {
+require('node:test')('qERR explains the offending symbol and preserves the failed configuration', () => {
   const assert = require('node:assert/strict');
   const { SimulationController } = controller('SimulationController');
   for (const [word, symbol, position, transition, stack, index] of [
-    ['а', 'б', 2, '(q3, _, б) → (qerror, _, б)', ['б', 'Z0'], 1],
-    ['', 'а', 1, '(q2, _, а) → (qerror, _, а)', ['а', 'б', 'Z0'], 0],
-    ['абв', 'в', 3, '(q4, в, Z0) → (qerror, в, Z0)', ['Z0'], 2],
-    ['ав', 'б', 2, '(q3, в, б) → (qerror, в, б)', ['б', 'Z0'], 1],
+    ['а', 'б', 2, '(q3, ε, б) → (qERR, ε, б)', ['б', 'Z0'], 1],
+    ['', 'а', 1, '(q2, ε, а) → (qERR, ε, а)', ['а', 'б', 'Z0'], 0],
+    ['абв', 'в', 3, '(q4, в, Z0) → (qERR, в, Z0)', ['Z0'], 2],
+    ['ав', 'б', 2, '(q3, в, б) → (qERR, в, б)', ['б', 'Z0'], 1],
   ]) {
     const simulation = new SimulationController({ template: 'аб', terminals: [], variables: [] });
     simulation.start(word);

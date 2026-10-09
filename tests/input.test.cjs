@@ -3,6 +3,43 @@ function controller(name) {
   return require(require('node:path').join(process.env.AUTOMATA_TEST_BUILD, 'controllers', `${name}.js`));
 }
 
+require('node:test')('word symbols outside the terminal alphabet are counted separately and corrections keep their penalties', () => {
+  const assert = require('node:assert/strict');
+  const { GrammarController } = controller('GrammarController');
+  const { PreparationController } = controller('PreparationController');
+  const grammar = GrammarController.createGrammar([], 'L', { terminals: '{а-яЁ0-9 _ε🙂}', nonterminals: '{}' });
+  const preparation = new PreparationController();
+  assert.deepEqual(GrammarController.validateInputWord('яЁ7 _ε🙂', grammar), []);
+  for (const word of ['аa', '!', 'ЖЖ']) {
+    const issues = GrammarController.validateInputWord(word, grammar);
+    assert.equal(issues.length, word === 'ЖЖ' ? 2 : 1);
+    assert.ok(issues.every(issue => issue.kind === 'outside_alphabet' && issue.field === 'input-word'));
+    const blocked = preparation.submit(grammar, word);
+    assert.equal(blocked.ready, false);
+  }
+  assert.equal(preparation.getInputErrors().length, 4);
+  assert.equal(preparation.getGrade().score, 80);
+  const accepted = preparation.submit(grammar, 'я');
+  assert.equal(accepted.ready, true);
+  assert.equal(accepted.inputErrors.length, 4);
+  const narrowed = { ...grammar, alphabet: { ...grammar.alphabet, terminals: '{0-9}' } };
+  assert.equal(preparation.submit(narrowed, 'я').ready, false, 'Next rechecks a word after the alphabet changes');
+});
+
+require('node:test')('word membership uses terminal set ranges, escaped symbols and expanded references', () => {
+  const assert = require('node:assert/strict');
+  const { GrammarController } = controller('GrammarController');
+  const grammar = GrammarController.createGrammar([{ symbol: 'B', allowedValues: '{D}' }, { symbol: 'D', allowedValues: '{а-яёЁ}' }], 'L',
+    { terminals: '{B0-9_␣🙂\\,}', nonterminals: 'BD' });
+  assert.deepEqual(GrammarController.validateAlphabet(grammar), []);
+  assert.deepEqual(GrammarController.validateInputWord('яёЁ0 9_🙂,', grammar), []);
+  assert.deepEqual(GrammarController.validateInputWord('B!-', grammar).map(issue => issue.kind), ['outside_alphabet', 'outside_alphabet', 'outside_alphabet']);
+  assert.equal(GrammarController.validateInputWord('а', { ...grammar, alphabet: { ...grammar.alphabet, terminals: '' } }).length, 1);
+  const invalidAlphabet = { ...grammar, alphabet: { ...grammar.alphabet, terminals: '{a}' } };
+  assert.deepEqual(GrammarController.validateInputWord('a', invalidAlphabet), [], 'word membership has no separate English-letter rule');
+  assert.ok(GrammarController.validateAlphabet(invalidAlphabet).some(issue => issue.kind === 'invalid_terminal'), 'the terminal alphabet owns English-letter validation');
+});
+
 require('node:test')('explicit alphabets retain user text and resolve declared nonterminal references', () => {
   const assert = require('node:assert/strict');
   const { GrammarController } = controller('GrammarController');

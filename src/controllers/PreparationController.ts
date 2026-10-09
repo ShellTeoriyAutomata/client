@@ -51,7 +51,7 @@ export class PreparationController {
   /** Collect all current errors, or start a simulation with the history of corrected mistakes. */
   public submit(grammar: GrammarDefinition, inputWord: string): PreparationResult {
     if (this.hasFailed()) return { ready: false, errors: [], errorCount: this.history.length };
-    const issues = GrammarController.validateAlphabet(grammar);
+    const issues = [...GrammarController.validateAlphabet(grammar), ...GrammarController.validateInputWord(inputWord, grammar)];
     if (issues.length > 0) {
       this.record(issues);
       return { ready: false, errors: issues.map(issue => issue.message), errorCount: this.history.length };

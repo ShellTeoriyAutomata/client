@@ -30,6 +30,17 @@ export class GrammarController {
     return this.validateAll(grammar)[0] ?? '';
   }
 
+  /** Report each word symbol missing from the explicit terminal alphabet; legacy grammars have no alphabet field. */
+  static validateInputWord(inputWord: string, grammar: GrammarDefinition): InputError[] {
+    const alphabet = grammar.alphabet;
+    if (!alphabet) return [];
+    return Array.from(inputWord).flatMap((char, index) => !this.matches(char, alphabet.terminals, grammar.variables) ? [{
+      kind: 'outside_alphabet' as const,
+      field: 'input-word',
+      message: `Символ входного слова «${char === ' ' ? '␣' : char}» (позиция ${index + 1}) отсутствует в алфавите терминалов.`,
+    }] : []);
+  }
+
   /** Validate one terminal set, including English letters hidden inside a range or malformed input. */
   static validateTerminalSet(allowedValues: string): string[] {
     const errors: string[] = [];

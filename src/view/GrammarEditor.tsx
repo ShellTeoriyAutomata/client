@@ -6,6 +6,7 @@ import { InputGuardController } from '../controllers/InputGuardController';
 interface GrammarEditorProps {
   variables: TaskVariable[];
   alphabet?: AlphabetDefinition;
+  disabled?: boolean;
   onVariablesChange: (value: TaskVariable[]) => void;
   onAlphabetChange?: (value: AlphabetDefinition) => void;
   onInputErrors?: (errors: InputError[], grammar: GrammarDefinition) => void;
@@ -13,7 +14,7 @@ interface GrammarEditorProps {
 }
 
 /** Edit explicit alphabets and definitions, retaining rejected edits for the teacher only. */
-export default function GrammarEditor({ variables, alphabet, onVariablesChange, onAlphabetChange, onInputErrors, onFrozenChange }: GrammarEditorProps) {
+export default function GrammarEditor({ variables, alphabet, disabled = false, onVariablesChange, onAlphabetChange, onInputErrors, onFrozenChange }: GrammarEditorProps) {
   const [frozen, setFrozen] = useState(false);
   const [guard] = useState(() => new InputGuardController({
     schedule: (callback, delay) => window.setTimeout(callback, delay),
@@ -31,7 +32,7 @@ export default function GrammarEditor({ variables, alphabet, onVariablesChange, 
   }
 
   function updateAlphabet(field: keyof AlphabetDefinition, value: string) {
-    if (frozen) return;
+    if (frozen || disabled) return;
     const next = { ...currentAlphabet, [field]: value };
     onAlphabetChange?.(next);
     const grammar = GrammarController.createGrammar(variables, '', next);
@@ -42,7 +43,7 @@ export default function GrammarEditor({ variables, alphabet, onVariablesChange, 
   }
 
   function updateVariable(index: number, field: keyof TaskVariable, value: string) {
-    if (frozen) return;
+    if (frozen || disabled) return;
     const next = variables.map((variable, i) => i === index ? { ...variable, [field]: value } : variable);
     onVariablesChange(next);
     const grammar = GrammarController.createGrammar(next, '', alphabet);
@@ -55,7 +56,7 @@ export default function GrammarEditor({ variables, alphabet, onVariablesChange, 
   }
 
   function checkDefinition(index: number) {
-    if (frozen || !variables[index].allowedValues) return;
+    if (frozen || disabled || !variables[index].allowedValues) return;
     const field = `variable-values-${index}`;
     const grammar = GrammarController.createGrammar(variables, '', alphabet);
     const errors = GrammarController.validateAlphabet(grammar).filter(error => error.field === field);
@@ -70,14 +71,14 @@ export default function GrammarEditor({ variables, alphabet, onVariablesChange, 
   }
 
   return (
-    <fieldset className="grammar-editor" disabled={frozen} aria-busy={frozen}>
+    <fieldset className="grammar-editor" disabled={frozen || disabled} aria-busy={frozen || disabled}>
       <legend>Терминалы и нетерминалы</legend>
       {frozen && <p className="error-text input-error-notice" role="alert">Ошибка</p>}
       <div className="alphabet-inputs">
         <div className="form-group"><label htmlFor="nonterminal-alphabet">Алфавит нетерминалов</label><input id="nonterminal-alphabet" value={currentAlphabet.nonterminals} onChange={event => updateAlphabet('nonterminals', event.target.value)} placeholder="BD" /></div>
         <div className="form-group"><label htmlFor="terminal-alphabet">Алфавит терминалов</label><input id="terminal-alphabet" value={currentAlphabet.terminals} onChange={event => updateAlphabet('terminals', event.target.value)} placeholder="{а-я0-9_␣}" /></div>
       </div>
-      <div className="alphabet-toolbar"><span className="builtin-symbol"><strong>{GrammarController.universalSymbol}</strong> — любой символ</span><button type="button" className="secondary-button add-variable" onClick={() => onVariablesChange([...variables, { symbol: '', allowedValues: '' }])}>+ Описание нетерминала</button></div>
+      <div className="alphabet-toolbar"><span className="builtin-symbol"><strong>{GrammarController.universalSymbol}</strong> — любой символ</span><button type="button" className="secondary-button add-variable" onClick={() => onVariablesChange([...variables, { symbol: '', allowedValues: '' }])}>+ Нетерминал</button></div>
       <div className="variable-list">
         {variables.map((variable, index) => (
           <div key={index} className="variable-row">

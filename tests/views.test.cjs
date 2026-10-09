@@ -6,6 +6,75 @@ function render(name, props) {
   return renderToStaticMarkup(React.createElement(View, props));
 }
 
+require('node:test')('invalid word stays visible during a one-second freeze, blocks all editing, then clears', () => {
+  const assert = require('node:assert/strict');
+  const React = require('react');
+  const { renderToStaticMarkup } = require('react-dom/server');
+  const StudentTaskView = require(require('node:path').join(process.env.AUTOMATA_TEST_BUILD, 'view/StudentTaskView.js')).default;
+  let now = 0;
+  let pending;
+  const delays = [];
+  const inputTimer = {
+    schedule(callback, delay) { delays.push(delay); pending = { callback, at: now + delay }; return pending; },
+    cancel() { pending = undefined; },
+  };
+  function advance(milliseconds) {
+    now += milliseconds;
+    if (pending && now >= pending.at) {
+      const callback = pending.callback;
+      pending = undefined;
+      callback();
+    }
+  }
+  function findElement(element, predicate) {
+    if (!React.isValidElement(element)) return undefined;
+    if (predicate(element)) return element;
+    return React.Children.toArray(element.props.children).map(child => findElement(child, predicate)).find(Boolean);
+  }
+  const snapshots = [];
+  const actions = [
+    ({ editor }) => editor.props.onAlphabetChange({ terminals: '{а-я}', nonterminals: '{}' }),
+    ({ input }) => input.props.onChange({ target: { value: 'мир' } }),
+    ({ input }) => input.props.onChange({ target: { value: 'мирa' } }),
+    () => advance(999),
+    ({ input }) => input.props.onChange({ target: { value: 'другая ошибка!' } }),
+    ({ form }) => form.props.onSubmit({ preventDefault() {} }),
+    () => advance(1),
+    ({ input }) => input.props.onChange({ target: { value: 'я' } }),
+    ({ input }) => input.props.onChange({ target: { value: '!' } }),
+    () => advance(1000),
+  ];
+  function Harness() {
+    const index = React.useRef(0);
+    const [, rerender] = React.useState(0);
+    const view = StudentTaskView({ task: { id: 'a', title: 'Слово', description: 'Условие' }, onBack() {}, inputTimer });
+    const input = findElement(view, element => element.props.id === 'input-word');
+    const editor = findElement(view, element => typeof element.props.onAlphabetChange === 'function');
+    const template = findElement(view, element => element.props.id === 'grammar-template');
+    const submit = findElement(view, element => element.props.type === 'submit');
+    const form = findElement(view, element => element.type === 'form');
+    const alert = findElement(view, element => element.props.role === 'alert');
+    snapshots.push({ value: input.props.value, frozen: input.props.disabled, editorDisabled: !!editor.props.disabled,
+      templateDisabled: template.props.disabled, submitDisabled: submit.props.disabled, error: !!alert });
+    if (index.current < actions.length) {
+      actions[index.current++]({ input, editor, form });
+      rerender(value => value + 1);
+    }
+    return view;
+  }
+  const html = renderToStaticMarkup(React.createElement(Harness));
+  assert.deepEqual(snapshots.map(item => item.value), ['', '', 'мир', 'мирa', 'мирa', 'мирa', 'мирa', '', 'я', '!', '']);
+  assert.deepEqual(snapshots.map(item => item.frozen), [false, false, false, true, true, true, true, false, false, true, false]);
+  for (const snapshot of snapshots) {
+    assert.equal(snapshot.editorDisabled, snapshot.frozen);
+    assert.equal(snapshot.templateDisabled, snapshot.frozen);
+    assert.equal(snapshot.submitDisabled, snapshot.frozen);
+    assert.equal(snapshot.error, snapshot.frozen, 'the short error notice is visible only during the freeze');
+  }
+  assert.deepEqual(delays, [1000, 1000], 'frozen edits and Next cannot count or schedule an additional rejection');
+  assert.doesNotMatch(html, /role="alert"/);
+});
+
 require('node:test')('teacher opens assignments without grammar fields or settings', () => {
   const assert = require('node:assert/strict');
   const html = render('TeacherDashboard', {});
@@ -36,7 +105,8 @@ require('node:test')('student receives the assignment and defines the grammar', 
 require('node:test')('alphabet editor labels symbol sets and offers no presets or terminal input', () => {
   const assert = require('node:assert/strict');
   const html = render('GrammarEditor', { variables: [{ symbol: 'B', allowedValues: '{а-яБ-Я_}' }], template: '', onVariablesChange() {}, onTemplateChange() {} });
-  assert.match(html, /Нетерминал/);
+  assert.match(html, />\+ Нетерминал<\/button>/);
+  assert.doesNotMatch(html, /Описание нетерминала/);
   assert.match(html, /Описание множества/);
   assert.doesNotMatch(html, /\(заглавная английская буква\)/);
   assert.match(html, /\{а-яБ-Я_\}/);
@@ -186,7 +256,7 @@ require('node:test')('teacher can set a separate deduction for every input error
   assert.match(html, /type="number"[^>]*value="5"/);
 });
 
-require('node:test')('teacher sees the actual qerror reason from the student attempt without epsilon placeholders', () => {
+require('node:test')('teacher sees the qERR reason and epsilon for missing transition symbols', () => {
   const assert = require('node:assert/strict');
   const { SimulationController } = require(require('node:path').join(process.env.AUTOMATA_TEST_BUILD, 'controllers/SimulationController.js'));
   const { ResultController } = require(require('node:path').join(process.env.AUTOMATA_TEST_BUILD, 'controllers/ResultController.js'));
@@ -197,11 +267,11 @@ require('node:test')('teacher sees the actual qerror reason from the student att
   simulation.tick();
   const result = ResultController.createResult({ id: 'attempt', student: { id: 's', fio: 'Ученик', group: '301' }, task: { id: 'task', title: 'Слово', description: 'Условие' }, solution, state: simulation.getState(), completedAt: '2026-10-08T10:00:00Z' });
   const html = render('ResultDetails', { result, onBack() {} });
-  assert.match(html, /\(q2, _, б\) → \(qerror, _, б\)/);
+  assert.match(html, /\(q2, ε, б\) → \(qERR, ε, б\)/);
   assert.match(html, /символа стека «б»/);
   assert.match(html, /позиция 1/);
   assert.match(html, /Пустое слово/);
-  assert.doesNotMatch(html, /ε/);
+  assert.match(html, /ε/);
 });
 
 require('node:test')('teacher result shows the saved full template next to the input word', () => {
