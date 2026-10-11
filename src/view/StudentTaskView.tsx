@@ -82,11 +82,25 @@ export default function StudentTaskView({ task, onBack, inputTimer }: StudentTas
     if (inputFrozen || failed) return;
     const grammar = GrammarController.createGrammar(variables, template, alphabet);
     const issues = GrammarController.validateInputWord(value, grammar);
-    setInputWord(value);
+    const acceptedValue = value.replace(/[A-Za-z]/g, '');
+    setInputWord(acceptedValue);
     setPreparationFeedback(null);
     wordGuard.reject(issues, {
       record: errors => recordInputErrors(errors, grammar),
-      clear: () => setInputWord(''),
+      clear: () => setInputWord(issues.every(issue => issue.kind === 'invalid_terminal') ? acceptedValue : ''),
+      setFrozen: setWordFrozen,
+    });
+  }
+
+  function updateTemplate(value: string) {
+    if (inputFrozen || failed) return;
+    const grammar = GrammarController.createGrammar(variables, value, alphabet);
+    const issues = GrammarController.validateDraft(grammar, 'template');
+    setPreparationFeedback(null);
+    if (issues.length === 0) { setTemplate(value); return; }
+    wordGuard.reject(issues, {
+      record: errors => recordInputErrors(errors, grammar),
+      clear: () => {},
       setFrozen: setWordFrozen,
     });
   }
@@ -184,7 +198,7 @@ export default function StudentTaskView({ task, onBack, inputTimer }: StudentTas
       {!simState && !failed && (
         <form className="form-column solution-form" onSubmit={handleStart} noValidate>
           <GrammarEditor variables={variables} alphabet={alphabet} disabled={wordFrozen} onVariablesChange={setVariables} onAlphabetChange={setAlphabet} onInputErrors={recordInputErrors} onFrozenChange={setEditorFrozen} />
-          <div className="form-group"><label htmlFor="grammar-template">Шаблон</label><input id="grammar-template" value={template} onChange={event => { setTemplate(event.target.value); setPreparationFeedback(null); }} placeholder="Введите свой шаблон" disabled={inputFrozen} /></div>
+          <div className="form-group"><label htmlFor="grammar-template">Шаблон</label><input id="grammar-template" value={template} onChange={event => updateTemplate(event.target.value)} placeholder="Введите свой шаблон" disabled={inputFrozen} /></div>
           <div className="form-group" aria-busy={wordFrozen}><label htmlFor="input-word">Входное слово</label><input id="input-word" value={inputWord} onChange={event => updateInputWord(event.target.value)} placeholder="Введите слово для сопоставления" disabled={inputFrozen} />{wordFrozen && <p className="error-text input-error-notice" role="alert">Ошибка</p>}</div>
           {preparationFeedback && <PreparationFeedback errors={preparationFeedback.errors} errorCount={preparationFeedback.errorCount} />}
           <button type="submit" disabled={inputFrozen}>Далее</button>
@@ -195,7 +209,7 @@ export default function StudentTaskView({ task, onBack, inputTimer }: StudentTas
           <ComparisonPanel state={simState} template={solution.template} />
           <div className="simulation-controls">
             <strong role="status">{simState.status === 'loading' ? 'Загрузка шаблона в стек' : simState.status === 'running' ? 'Сопоставление слова и шаблона' : simState.status === 'success' ? 'Слово соответствует шаблону' : 'Слово не соответствует шаблону'}</strong>
-            <code>{simState.status === 'success' ? 'qf' : simState.status === 'error' ? 'qERR' : `q${simState.currentStateIndex}`}</code>
+            <code>{simState.status === 'success' ? 'qf' : simState.status === 'error' ? 'qerr' : `q${simState.currentStateIndex}`}</code>
             {active && <span className="muted">Для такта нажмите пробел</span>}
           </div>
           <div className="simulation-layout">

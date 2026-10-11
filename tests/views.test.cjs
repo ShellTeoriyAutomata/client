@@ -6,7 +6,7 @@ function render(name, props) {
   return renderToStaticMarkup(React.createElement(View, props));
 }
 
-require('node:test')('invalid word stays visible during a one-second freeze, blocks all editing, then clears', () => {
+require('node:test')('English input is removed immediately and counted while other invalid input clears after the freeze', () => {
   const assert = require('node:assert/strict');
   const React = require('react');
   const { renderToStaticMarkup } = require('react-dom/server');
@@ -63,7 +63,7 @@ require('node:test')('invalid word stays visible during a one-second freeze, blo
     return view;
   }
   const html = renderToStaticMarkup(React.createElement(Harness));
-  assert.deepEqual(snapshots.map(item => item.value), ['', '', 'мир', 'мирa', 'мирa', 'мирa', 'мирa', '', 'я', '!', '']);
+  assert.deepEqual(snapshots.map(item => item.value), ['', '', 'мир', 'мир', 'мир', 'мир', 'мир', 'мир', 'я', '!', '']);
   assert.deepEqual(snapshots.map(item => item.frozen), [false, false, false, true, true, true, true, false, false, true, false]);
   for (const snapshot of snapshots) {
     assert.equal(snapshot.editorDisabled, snapshot.frozen);
@@ -95,7 +95,7 @@ require('node:test')('student receives the assignment and defines the grammar', 
   assert.match(html, /Входное слово/);
   assert.match(html, /Алфавит терминалов/);
   assert.match(html, /Алфавит нетерминалов/);
-  assert.match(html, /L.*любой символ/);
+  assert.doesNotMatch(html, /L.*любой символ/);
   assert.doesNotMatch(html, /Используйте английские буквы|Каждый символ шаблона соответствует|Слово остаётся в строке над стеком|В магазин загружается ваш шаблон/);
   assert.match(html, /novalidate/i);
   assert.match(html, /<button type="submit">Далее<\/button>/);
@@ -140,7 +140,7 @@ require('node:test')('assignment description includes the student alphabet', () 
   assert.match(html, /Нетерминалы/);
   assert.match(html, /Терминалы/);
   assert.match(html, /\{0-9\}/);
-  assert.match(html, /L/);
+  assert.doesNotMatch(html, /любой символ/);
 });
 
 require('node:test')('comparison displays only real symbols and keeps the remaining template pointer on error', () => {
@@ -256,7 +256,7 @@ require('node:test')('teacher can set a separate deduction for every input error
   assert.match(html, /type="number"[^>]*value="5"/);
 });
 
-require('node:test')('teacher sees the qERR reason and epsilon for missing transition symbols', () => {
+require('node:test')('teacher sees the qerr reason and epsilon for missing transition symbols', () => {
   const assert = require('node:assert/strict');
   const { SimulationController } = require(require('node:path').join(process.env.AUTOMATA_TEST_BUILD, 'controllers/SimulationController.js'));
   const { ResultController } = require(require('node:path').join(process.env.AUTOMATA_TEST_BUILD, 'controllers/ResultController.js'));
@@ -267,7 +267,7 @@ require('node:test')('teacher sees the qERR reason and epsilon for missing trans
   simulation.tick();
   const result = ResultController.createResult({ id: 'attempt', student: { id: 's', fio: 'Ученик', group: '301' }, task: { id: 'task', title: 'Слово', description: 'Условие' }, solution, state: simulation.getState(), completedAt: '2026-10-08T10:00:00Z' });
   const html = render('ResultDetails', { result, onBack() {} });
-  assert.match(html, /\(q2, ε, б\) → \(qERR, ε, б\)/);
+  assert.match(html, /\(q2, ε, б\) → \(qerr, ε, б\)/);
   assert.match(html, /символа стека «б»/);
   assert.match(html, /позиция 1/);
   assert.match(html, /Пустое слово/);

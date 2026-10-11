@@ -78,7 +78,7 @@ export default function GrammarEditor({ variables, alphabet, disabled = false, o
         <div className="form-group"><label htmlFor="nonterminal-alphabet">Алфавит нетерминалов</label><input id="nonterminal-alphabet" value={currentAlphabet.nonterminals} onChange={event => updateAlphabet('nonterminals', event.target.value)} placeholder="BD" /></div>
         <div className="form-group"><label htmlFor="terminal-alphabet">Алфавит терминалов</label><input id="terminal-alphabet" value={currentAlphabet.terminals} onChange={event => updateAlphabet('terminals', event.target.value)} placeholder="{а-я0-9_␣}" /></div>
       </div>
-      <div className="alphabet-toolbar"><span className="builtin-symbol"><strong>{GrammarController.universalSymbol}</strong> — любой символ</span><button type="button" className="secondary-button add-variable" onClick={() => onVariablesChange([...variables, { symbol: '', allowedValues: '' }])}>+ Нетерминал</button></div>
+      <div className="alphabet-toolbar"><button type="button" className="secondary-button add-variable" onClick={() => onVariablesChange([...variables, { symbol: '', allowedValues: '' }])}>+ Нетерминал</button></div>
       <div className="variable-list">
         {variables.map((variable, index) => (
           <div key={index} className="variable-row">

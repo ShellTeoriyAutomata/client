@@ -1,14 +1,9 @@
 import type { AlphabetDefinition, GrammarDefinition, InputError, TaskVariable } from '../models/types';
 
 export class GrammarController {
-  /** Reserved template symbol that matches any single input character. */
-  static get universalSymbol(): string {
-    return 'L';
-  }
-
   /** Copy the student grammar and retain its literal template symbols for result display. */
   static createGrammar(variables: TaskVariable[], template: string, alphabet?: AlphabetDefinition): GrammarDefinition {
-    const nonterminals = new Set([...variables.filter(variable => /^[A-Z]$/.test(variable.symbol)).map(variable => variable.symbol), this.universalSymbol]);
+    const nonterminals = new Set([...variables.filter(variable => /^[A-Z]$/.test(variable.symbol)).map(variable => variable.symbol)]);
     const terminals = [...new Set(Array.from(template).filter(char => !nonterminals.has(char)))];
     return { terminals, variables: variables.map(variable => ({ ...variable })), template, ...(alphabet ? { alphabet: { ...alphabet } } : {}) };
   }
@@ -30,15 +25,18 @@ export class GrammarController {
     return this.validateAll(grammar)[0] ?? '';
   }
 
-  /** Report each word symbol missing from the explicit terminal alphabet; legacy grammars have no alphabet field. */
+  /** Reject English letters independently and report each symbol outside the explicit terminal alphabet. */
   static validateInputWord(inputWord: string, grammar: GrammarDefinition): InputError[] {
-    const alphabet = grammar.alphabet;
-    if (!alphabet) return [];
-    return Array.from(inputWord).flatMap((char, index) => !this.matches(char, alphabet.terminals, grammar.variables) ? [{
-      kind: 'outside_alphabet' as const,
-      field: 'input-word',
-      message: `Символ входного слова «${char === ' ' ? '␣' : char}» (позиция ${index + 1}) отсутствует в алфавите терминалов.`,
-    }] : []);
+    return Array.from(inputWord).flatMap((char, index): InputError[] => {
+      if (/[A-Za-z]/.test(char)) return [{
+        kind: 'invalid_terminal', field: 'input-word',
+        message: `Английская буква «${char}» (позиция ${index + 1}) запрещена во входном слове.`,
+      }];
+      if (!grammar.alphabet || this.matches(char, grammar.alphabet.terminals, grammar.variables)) return [];
+      return [{ kind: 'outside_alphabet', field: 'input-word',
+        message: `Символ входного слова «${char === ' ' ? '␣' : char}» (позиция ${index + 1}) отсутствует в алфавите терминалов.`,
+      }];
+    });
   }
 
   /** Validate one terminal set, including English letters hidden inside a range or malformed input. */
@@ -71,6 +69,16 @@ export class GrammarController {
     const issues: InputError[] = [];
     const declared = this.nonterminalSymbols(grammar);
     const add = (kind: InputError['kind'], message: string) => issues.push({ kind, field, message });
+    if (field === 'template') {
+      for (const char of new Set(Array.from(grammar.template))) {
+        if (/^[A-Z]$/.test(char)) {
+          if (!declared.has(char)) add('unknown_nonterminal', `В шаблоне есть необъявленный нетерминал «${char}».`);
+        } else if (grammar.alphabet && !this.matches(char, grammar.alphabet.terminals, grammar.variables)) {
+          add('outside_alphabet', `Терминал шаблона «${char === ' ' ? '␣' : char}» отсутствует в алфавите.`);
+        }
+      }
+      return issues;
+    }
     if (field === 'nonterminal-alphabet') {
       const chars = Array.from(grammar.alphabet?.nonterminals ?? '').filter(char => !/[{},;\s]/u.test(char));
       if (chars.some(char => !/^[A-Z]$/.test(char))) add('invalid_nonterminal', `Алфавит нетерминалов «${grammar.alphabet?.nonterminals}» должен содержать заглавные английские буквы.`);
@@ -83,7 +91,6 @@ export class GrammarController {
       const symbol = grammar.variables[index]?.symbol ?? '';
       if (!symbol) return [];
       if (!/^[A-Z]$/.test(symbol)) add('invalid_nonterminal', `Нетерминал «${symbol}» должен быть одной заглавной английской буквой.`);
-      else if (symbol === this.universalSymbol) add('reserved_nonterminal', 'Нетерминал L зарезервирован.');
       else if (!declared.has(symbol)) add('unknown_nonterminal', `Нетерминал «${symbol}» отсутствует в алфавите нетерминалов.`);
       if (grammar.variables.some((variable, i) => i !== index && variable.symbol === symbol)) add('duplicate_nonterminal', `Нетерминал «${symbol}» объявлен повторно.`);
       return issues;
@@ -117,7 +124,7 @@ export class GrammarController {
         try { terminalRanges = this.expandedRanges(grammar.alphabet.terminals, grammar.variables); } catch { /* Reported by validateSet. */ }
       }
       for (const symbol of used) {
-        if (declared.has(symbol) && symbol !== this.universalSymbol && !grammar.variables.some(variable => variable.symbol === symbol)) {
+        if (declared.has(symbol) && !grammar.variables.some(variable => variable.symbol === symbol)) {
           add('empty_field', 'nonterminal-alphabet', `Для нетерминала «${symbol}» не задано описание множества.`);
         }
       }
@@ -130,7 +137,7 @@ export class GrammarController {
       if (grammar.alphabet && !variable.allowedValues && !used.has(variable.symbol)) return;
       const setIssues = this.validateSet(grammar, valuesField, variable.allowedValues);
       issues.push(...setIssues);
-      if (terminalRanges && setIssues.length === 0 && !variable.allowedValues.includes(this.universalSymbol)) {
+      if (terminalRanges && setIssues.length === 0) {
         try {
           if (this.expandedRanges(variable.allowedValues, grammar.variables).some(range => !this.covered(range, terminalRanges!))) {
             add('outside_alphabet', valuesField, `Множество «${variable.symbol}» содержит символы вне алфавита терминалов.`);
@@ -138,7 +145,7 @@ export class GrammarController {
         } catch { /* Reported by validateSet. */ }
       }
     });
-    if (grammar.alphabet) {
+    {
       const unknown = [...new Set(Array.from(grammar.template).filter(char => /^[A-Z]$/.test(char) && !declared.has(char)))];
       if (unknown.length) add('unknown_nonterminal', 'template', `В шаблоне есть необъявленные нетерминалы: ${unknown.join(', ')}.`);
       const outside = terminalRanges ? [...new Set(Array.from(grammar.template).filter(char => !declared.has(char) && !/^[A-Z]$/.test(char) &&
@@ -149,7 +156,7 @@ export class GrammarController {
   }
 
   private static nonterminalSymbols(grammar: GrammarDefinition): Set<string> {
-    return new Set([this.universalSymbol, ...(grammar.alphabet ? Array.from(grammar.alphabet.nonterminals).filter(char => /^[A-Z]$/.test(char)) : grammar.variables.map(variable => variable.symbol).filter(char => /^[A-Z]$/.test(char)))]);
+    return new Set([...(grammar.alphabet ? Array.from(grammar.alphabet.nonterminals).filter(char => /^[A-Z]$/.test(char)) : grammar.variables.map(variable => variable.symbol).filter(char => /^[A-Z]$/.test(char)))]);
   }
 
   private static validBraces(values: string): boolean {
@@ -182,7 +189,6 @@ export class GrammarController {
     return this.allowedRanges(values).flatMap(range => {
       if (range.start !== range.end || range.start < 65 || range.start > 90) return [range];
       const symbol = String.fromCodePoint(range.start);
-      if (symbol === this.universalSymbol) return [{ start: 0, end: 0x10ffff }];
       const variable = variables.find(item => item.symbol === symbol);
       if (!variable) throw new ReferenceError(`Нетерминал «${symbol}» не описан.`);
       if (visiting.has(symbol)) throw new RangeError(`Циклическая ссылка на нетерминал «${symbol}».`);
@@ -219,7 +225,15 @@ export class GrammarController {
         if (next === undefined) throw new Error('Missing escaped symbol');
         chunks[chunks.length - 1].push({ char: next === '␣' ? ' ' : next, literal: true });
         index += 1;
-      } else if (char === ',' || char === ';' || (char !== ' ' && /\s/u.test(char))) {
+      } else if (char === ',' && chars[index + 1] === ',') {
+        // A doubled comma includes a literal comma; a single comma separates members.
+        chunks[chunks.length - 1].push({ char: ',', literal: true });
+        chunks.push([]);
+        index += 1;
+      } else if (char === ',') {
+        chunks[chunks.length - 1].push({ char, literal: true });
+        chunks.push([]);
+      } else if (char === ';' || (char !== ' ' && /\s/u.test(char))) {
         chunks.push([]);
       } else {
         if (char === '{' || char === '}') throw new Error('Unexpected set brace');

@@ -70,7 +70,7 @@ require('node:test')('matching detects wrong symbols and both length mismatches'
 require('node:test')('student grammar validates symbols, literal sets, spaces and ranges', () => {
   const assert = require('node:assert/strict');
   const { GrammarController } = controller('GrammarController');
-  const grammar = GrammarController.createGrammar([{ symbol: 'D', allowedValues: '{0-9}' }, { symbol: 'P', allowedValues: '{+}' }], 'DLPD');
+  const grammar = GrammarController.createGrammar([{ symbol: 'D', allowedValues: '{0-9}' }, { symbol: 'P', allowedValues: '{+}' }], 'DPD');
   assert.deepEqual(grammar.terminals, []);
   assert.equal(GrammarController.validate(grammar), '');
   for (const allowed of ['.', '+', '[', '*', '(', '\\']) {
@@ -104,7 +104,7 @@ require('node:test')('student session is normalized and malformed sessions are i
 require('node:test')('simulation preserves spaces and unicode symbols', () => {
   const assert = require('node:assert/strict');
   const { SimulationController } = controller('SimulationController');
-  const simulation = new SimulationController({ template: 'LSD', terminals: [], variables: [{ symbol: 'D', allowedValues: '{0-9}' }, { symbol: 'S', allowedValues: '{␣}' }] });
+  const simulation = new SimulationController({ template: '🙂SD', terminals: [], variables: [{ symbol: 'D', allowedValues: '{0-9}' }, { symbol: 'S', allowedValues: '{␣}' }] });
   simulation.start('🙂 7');
   while (simulation.getState().status === 'loading') simulation.loadNext();
   while (simulation.getState().status === 'running') simulation.tick();
@@ -145,39 +145,13 @@ require('node:test')('group and assignment filters combine and retain old attemp
   assert.equal(ResultController.filterResults(results, '', '').length, 4);
 });
 
-require('node:test')('reserved L accepts any single input symbol without a manual alphabet', () => {
+require('node:test')('L has no implicit definition and behaves like any declared nonterminal', () => {
   const assert = require('node:assert/strict');
-  const { SimulationController } = controller('SimulationController');
   const { GrammarController } = controller('GrammarController');
-  const grammar = { template: 'L', terminals: [], variables: [] };
-  assert.equal(GrammarController.validate(grammar), '');
-  assert.notEqual(GrammarController.validate({ ...grammar, terminals: ['a'], variables: [{ symbol: 'L', allowedValues: 'a' }] }), '');
-  for (const char of Array.from('LЖёQ7_ ,.+-()[]{}\\🙂')) {
-    const simulation = new SimulationController(grammar);
-    simulation.start(char);
-    simulation.loadNext();
-    simulation.tick();
-    assert.equal(simulation.getState().status, 'success', char);
-    assert.equal(simulation.getState().inputIndex, 1, 'L still matches one character before input validation completes');
-  }
-  const simulation = new SimulationController(grammar);
-  simulation.start('ab');
-  simulation.loadNext();
-  simulation.tick();
-  simulation.tick();
-  assert.equal(simulation.getState().status, 'error', 'L matches one symbol, not an entire word');
-});
-
-require('node:test')('universal L does not widen user-defined nonterminals or literal terminals', () => {
-  const assert = require('node:assert/strict');
-  const { SimulationController } = controller('SimulationController');
-  for (const [word, expected] of [['Ж7', 'success'], ['Жa', 'error']]) {
-    const simulation = new SimulationController({ template: 'LD', terminals: ['7'], variables: [{ symbol: 'D', allowedValues: '0-9' }] });
-    simulation.start(word);
-    while (simulation.getState().status === 'loading') simulation.loadNext();
-    while (simulation.getState().status === 'running') simulation.tick();
-    assert.equal(simulation.getState().status, expected);
-  }
+  assert.ok(GrammarController.validate({ template: 'L', terminals: [], variables: [] }));
+  const grammar = GrammarController.createGrammar([{ symbol: 'L', allowedValues: 'а-я' }], 'L', { terminals: 'а-я', nonterminals: 'L' });
+  assert.deepEqual(GrammarController.validateAlphabet(grammar), []);
+  assert.equal(GrammarController.matches('!', 'L', grammar.variables), false);
 });
 
 require('node:test')('logs mark the filled stack and start matching in q2', () => {
@@ -203,11 +177,11 @@ require('node:test')('logs mark the filled stack and start matching in q2', () =
   simulation.loadNext();
   simulation.loadNext();
   simulation.tick();
-  assert.equal(simulation.getState().logs.at(-1), '(q2, a, D) → (qERR, a, D)');
+  assert.equal(simulation.getState().logs.at(-1), '(q2, a, D) → (qerr, a, D)');
   assert.notEqual(simulation.getState().errorMessage, '');
   for (const [word, transition] of [
-    ['7', '(q3, ε, S) → (qERR, ε, S)'],
-    ['7!!', '(q4, !, Z0) → (qERR, !, Z0)'],
+    ['7', '(q3, ε, S) → (qerr, ε, S)'],
+    ['7!!', '(q4, !, Z0) → (qerr, !, Z0)'],
   ]) {
     simulation.start(word);
     while (simulation.getState().status === 'loading') simulation.loadNext();
@@ -223,7 +197,7 @@ require('node:test')('joined and separated braced sets describe the same alphabe
     const grammar = GrammarController.createGrammar([{ symbol: 'B', allowedValues: values }], 'B');
     assert.equal(GrammarController.validate(grammar), '', values);
     for (const char of ['а', 'к', 'я', 'Б', 'К', 'Я', '_']) assert.equal(GrammarController.matches(char, values), true, `${values}: ${char}`);
-    for (const char of ['А', 'ё', 'Ё', '{', '}', ',', ';', '7', 'a']) assert.equal(GrammarController.matches(char, values), false, `${values}: ${char}`);
+    for (const char of ['А', 'ё', 'Ё', '{', '}', ';', '7', 'a']) assert.equal(GrammarController.matches(char, values), false, `${values}: ${char}`);
   }
   assert.equal(GrammarController.matches(' ', '{а-я Б-Я _}'), true);
   assert.equal(GrammarController.matches(' ', '{а-яБ-Я_}'), false);
@@ -235,14 +209,14 @@ require('node:test')('joined and separated braced sets describe the same alphabe
   assert.equal(GrammarController.matches('}', '{\\{\\}}'), true);
 });
 
-require('node:test')('qERR explains the offending symbol and preserves the failed configuration', () => {
+require('node:test')('qerr explains the offending symbol and preserves the failed configuration', () => {
   const assert = require('node:assert/strict');
   const { SimulationController } = controller('SimulationController');
   for (const [word, symbol, position, transition, stack, index] of [
-    ['а', 'б', 2, '(q3, ε, б) → (qERR, ε, б)', ['б', 'Z0'], 1],
-    ['', 'а', 1, '(q2, ε, а) → (qERR, ε, а)', ['а', 'б', 'Z0'], 0],
-    ['абв', 'в', 3, '(q4, в, Z0) → (qERR, в, Z0)', ['Z0'], 2],
-    ['ав', 'б', 2, '(q3, в, б) → (qERR, в, б)', ['б', 'Z0'], 1],
+    ['а', 'б', 2, '(q3, ε, б) → (qerr, ε, б)', ['б', 'Z0'], 1],
+    ['', 'а', 1, '(q2, ε, а) → (qerr, ε, а)', ['а', 'б', 'Z0'], 0],
+    ['абв', 'в', 3, '(q4, в, Z0) → (qerr, в, Z0)', ['Z0'], 2],
+    ['ав', 'б', 2, '(q3, в, б) → (qerr, в, б)', ['б', 'Z0'], 1],
   ]) {
     const simulation = new SimulationController({ template: 'аб', terminals: [], variables: [] });
     simulation.start(word);
@@ -265,7 +239,7 @@ require('node:test')('literal template text and underscore consume input normall
   const { GrammarController } = controller('GrammarController');
   const { SimulationController } = controller('SimulationController');
   for (const [template, variables, word, expected] of [
-    ['abZ', [], 'abZ', 'success'],
+    ['abZ', [], 'abZ', 'error'],
     ['абЖ', [], 'абЖ', 'success'],
     ['abZ', [], 'abЖ', 'error'],
     ['BBB', [{ symbol: 'B', allowedValues: '{а-яБ-Я_}' }], 'кБ_', 'success'],
@@ -395,9 +369,9 @@ require('node:test')('alphabet mistakes reach the teacher while English word mat
   const { GrammarController } = controller('GrammarController');
   const { SimulationController } = controller('SimulationController');
   const { ResultController } = controller('ResultController');
-  const solution = GrammarController.createGrammar([{ symbol: 'B', allowedValues: '{a-z}' }], 'LBL');
+  const solution = GrammarController.createGrammar([{ symbol: 'B', allowedValues: '{a-z}' }], '🙂BЖ');
   const simulation = new SimulationController(solution);
-  simulation.start('🙂aZ');
+  simulation.start('🙂aЖ');
   assert.deepEqual(simulation.getState().errors, []);
   while (simulation.getState().status === 'loading') simulation.loadNext();
   assert.deepEqual(simulation.getState().errors, []);
@@ -443,8 +417,8 @@ require('node:test')('Next blocks invalid preparation and retains its errors aft
   const blocked = preparation.submit(GrammarController.createGrammar([{ symbol: 'Б', allowedValues: '{a-z}' }], 'Б'), 'a');
   assert.equal(blocked.ready, false);
   assert.equal(blocked.controller, undefined, 'invalid submission cannot create or load a simulation');
-  assert.equal(blocked.errors.length, 2);
-  assert.equal(blocked.errorCount, 2);
+  assert.equal(blocked.errors.length, 3);
+  assert.equal(blocked.errorCount, 3);
   assert.ok(blocked.errors.some(error => /заглавной английской/.test(error)));
   assert.ok(blocked.errors.some(error => /Терминальное множество/.test(error)));
   const accepted = preparation.submit(GrammarController.createGrammar([{ symbol: 'B', allowedValues: '{а-я}' }], 'B'), 'я');
@@ -456,11 +430,11 @@ require('node:test')('Next blocks invalid preparation and retains its errors aft
   assert.equal(completed.inputIndex, 1);
   assert.equal(completed.status, 'success');
   assert.deepEqual(completed.errors, []);
-  assert.equal(accepted.inputErrors.length, 2);
+  assert.equal(accepted.inputErrors.length, 3);
   assert.ok(accepted.inputErrors.some(error => /«Б»/.test(error.message)), 'report retains the original wrong symbol');
   const result = ResultController.createResult({ id: 'attempt', student: { id: 's', fio: 'Ученик', group: '301' }, task: { id: 'task', title: 'Слово', description: 'Условие' }, solution: accepted.grammar, state: completed, inputErrors: accepted.inputErrors, completedAt: '2026-10-08T10:00:00Z' });
-  assert.equal(result.errors.length, 2);
-  assert.equal(result.score, 90);
+  assert.equal(result.errors.length, 3);
+  assert.equal(result.score, 85);
   assert.equal(result.solution.variables[0].symbol, 'B', 'saved solution contains corrected data and report contains earlier mistakes');
 });
 

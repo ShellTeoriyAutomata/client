@@ -70,8 +70,7 @@ export class SimulationController {
       return this.getState();
     }
     const variable = this.grammar.variables.find(item => item.symbol === top && /^[A-Z]$/.test(item.symbol));
-    const matched = top === GrammarController.universalSymbol ||
-      (variable ? GrammarController.matches(char, variable.allowedValues, this.grammar.variables) : char === top);
+    const matched = variable ? GrammarController.matches(char, variable.allowedValues, this.grammar.variables) : !/^[A-Z]$/.test(top) && char === top;
     if (!matched) {
       this.fail(`Символ слова «${this.display(char)}» не соответствует символу шаблона «${this.display(top)}» (позиция ${this.state.inputIndex + 1}).`);
       return this.getState();
@@ -103,7 +102,7 @@ export class SimulationController {
 
   private fail(message?: string): void {
     const input = this.state.status === 'loading' ? 'ε' : this.inputSymbol();
-    this.state.logs.push(`${this.configuration(`q${this.state.currentStateIndex}`, input)} → ${this.configuration('qERR', input)}`);
+    this.state.logs.push(`${this.configuration(`q${this.state.currentStateIndex}`, input)} → ${this.configuration('qerr', input)}`);
     this.state.status = 'error';
     this.state.errorMessage = message ?? '';
   }

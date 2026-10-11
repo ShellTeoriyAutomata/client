@@ -1,5 +1,4 @@
 import type { Result, Task } from '../models/types';
-import { GrammarController } from '../controllers/GrammarController';
 import LaboratoryErrors from './LaboratoryErrors';
 import AssignmentDescription from './AssignmentDescription';
 
@@ -39,9 +38,6 @@ export default function ResultDetails({ result, assignment, onBack }: ResultDeta
         <section className="assignment-summary">
           <h4>Решение ученика</h4>
           <h4>Нетерминалы и терминальные множества</h4>
-          {result.solution.template.includes(GrammarController.universalSymbol) &&
-            !result.solution.variables.some(variable => variable.symbol === GrammarController.universalSymbol) &&
-            <p><code>{GrammarController.universalSymbol} = любой символ</code></p>}
           {result.solution.variables.length === 0 ? <p className="muted">Нетерминалы не заданы.</p> :
             result.solution.variables.map((variable, index) => <p key={index}><code>{variable.symbol} = {variable.allowedValues}</code></p>)}
         </section>

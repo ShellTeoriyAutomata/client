@@ -17,7 +17,7 @@ export interface Group {
 }
 
 export interface TaskVariable {
-    /** One uppercase English nonterminal; L is reserved. */
+    /** One explicitly declared uppercase English nonterminal. */
     symbol: string;
     /** Terminal set, optionally enclosed in braces. */
     allowedValues: string;
@@ -30,7 +30,7 @@ export interface Task {
     description: string;
 }
 
-/** Student grammar; reserved L is implicit and must not be added to variables. */
+/** Student grammar with explicitly declared nonterminals. */
 export interface GrammarDefinition {
     variables: TaskVariable[];
     /** Literal symbols of the template; named terminal sets are retained in variables. */

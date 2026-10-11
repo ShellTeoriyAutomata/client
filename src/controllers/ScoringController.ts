@@ -18,7 +18,7 @@ export class ScoringController {
       { kind: 'invalid_terminal', label: 'Недопустимая английская буква в терминалах' },
       { kind: 'unknown_nonterminal', label: 'Необъявленный нетерминал' },
       { kind: 'duplicate_nonterminal', label: 'Повторное объявление нетерминала' },
-      { kind: 'reserved_nonterminal', label: 'Переопределение встроенного L' },
+      { kind: 'reserved_nonterminal', label: 'Зарезервированное обозначение (старые попытки)' },
       { kind: 'invalid_set', label: 'Некорректное множество или диапазон' },
       { kind: 'cyclic_reference', label: 'Циклическая ссылка между множествами' },
       { kind: 'outside_alphabet', label: 'Символ вне заданного алфавита' },

@@ -7,13 +7,13 @@ require('node:test')('word symbols outside the terminal alphabet are counted sep
   const assert = require('node:assert/strict');
   const { GrammarController } = controller('GrammarController');
   const { PreparationController } = controller('PreparationController');
-  const grammar = GrammarController.createGrammar([], 'L', { terminals: '{а-яЁ0-9 _ε🙂}', nonterminals: '{}' });
+  const grammar = GrammarController.createGrammar([], 'я', { terminals: '{а-яЁ0-9 _ε🙂}', nonterminals: '{}' });
   const preparation = new PreparationController();
   assert.deepEqual(GrammarController.validateInputWord('яЁ7 _ε🙂', grammar), []);
   for (const word of ['аa', '!', 'ЖЖ']) {
     const issues = GrammarController.validateInputWord(word, grammar);
     assert.equal(issues.length, word === 'ЖЖ' ? 2 : 1);
-    assert.ok(issues.every(issue => issue.kind === 'outside_alphabet' && issue.field === 'input-word'));
+    assert.ok(issues.every(issue => issue.kind === (word === 'аa' ? 'invalid_terminal' : 'outside_alphabet') && issue.field === 'input-word'));
     const blocked = preparation.submit(grammar, word);
     assert.equal(blocked.ready, false);
   }
@@ -29,14 +29,14 @@ require('node:test')('word symbols outside the terminal alphabet are counted sep
 require('node:test')('word membership uses terminal set ranges, escaped symbols and expanded references', () => {
   const assert = require('node:assert/strict');
   const { GrammarController } = controller('GrammarController');
-  const grammar = GrammarController.createGrammar([{ symbol: 'B', allowedValues: '{D}' }, { symbol: 'D', allowedValues: '{а-яёЁ}' }], 'L',
+  const grammar = GrammarController.createGrammar([{ symbol: 'B', allowedValues: '{D}' }, { symbol: 'D', allowedValues: '{а-яёЁ}' }], 'B',
     { terminals: '{B0-9_␣🙂\\,}', nonterminals: 'BD' });
   assert.deepEqual(GrammarController.validateAlphabet(grammar), []);
   assert.deepEqual(GrammarController.validateInputWord('яёЁ0 9_🙂,', grammar), []);
-  assert.deepEqual(GrammarController.validateInputWord('B!-', grammar).map(issue => issue.kind), ['outside_alphabet', 'outside_alphabet', 'outside_alphabet']);
+  assert.deepEqual(GrammarController.validateInputWord('B!-', grammar).map(issue => issue.kind), ['invalid_terminal', 'outside_alphabet', 'outside_alphabet']);
   assert.equal(GrammarController.validateInputWord('а', { ...grammar, alphabet: { ...grammar.alphabet, terminals: '' } }).length, 1);
   const invalidAlphabet = { ...grammar, alphabet: { ...grammar.alphabet, terminals: '{a}' } };
-  assert.deepEqual(GrammarController.validateInputWord('a', invalidAlphabet), [], 'word membership has no separate English-letter rule');
+  assert.equal(GrammarController.validateInputWord('a', invalidAlphabet)[0].kind, 'invalid_terminal');
   assert.ok(GrammarController.validateAlphabet(invalidAlphabet).some(issue => issue.kind === 'invalid_terminal'), 'the terminal alphabet owns English-letter validation');
 });
 
@@ -296,4 +296,81 @@ require('node:test')('references in an unused definition do not require extra un
   const grammar = GrammarController.createGrammar([{ symbol: 'B', allowedValues: '{а}' }, { symbol: 'C', allowedValues: '{D}' }], 'B', { terminals: '{а-я}', nonterminals: 'BCD' });
   assert.deepEqual(GrammarController.validateAlphabet(grammar), []);
   assert.ok(GrammarController.validateAlphabet({ ...grammar, template: 'C' }).some(error => error.kind === 'empty_field'));
+});
+
+require('node:test')('address templates preserve repeated commas and match spaces through nonterminal references', () => {
+  const assert = require('node:assert/strict');
+  const { GrammarController } = controller('GrammarController');
+  const { PreparationController } = controller('PreparationController');
+  for (const values of ['{ ,а-я}', '{␣,а-я}', '{а-я }']) {
+    const grammar = GrammarController.createGrammar([{ symbol: 'A', allowedValues: values }, { symbol: 'F', allowedValues: '{A}' }], 'ул. FFF,,',
+      { terminals: '{а-я .,,}', nonterminals: 'AF' });
+    assert.deepEqual(GrammarController.validateAlphabet(grammar), []);
+    const result = new PreparationController().submit(grammar, 'ул. а б,,');
+    assert.equal(result.ready, true, JSON.stringify(result));
+    while (result.controller.getState().status === 'loading') result.controller.loadNext();
+    while (result.controller.getState().status === 'running') result.controller.tick();
+    assert.equal(result.controller.getState().status, 'success', values);
+  }
+});
+
+require('node:test')('English word letters are separate penalized mistakes with explicit or legacy alphabets', () => {
+  const assert = require('node:assert/strict');
+  const { GrammarController } = controller('GrammarController');
+  const { PreparationController } = controller('PreparationController');
+  for (const alphabet of [undefined, { terminals: '{а-яА-Я}', nonterminals: '{}' }]) {
+    const grammar = GrammarController.createGrammar([], 'абв', alphabet);
+    const preparation = new PreparationController();
+    const rejected = preparation.submit(grammar, 'aБZ');
+    assert.equal(rejected.ready, false);
+    assert.deepEqual(preparation.getInputErrors().map(issue => issue.kind), ['invalid_terminal', 'invalid_terminal']);
+    assert.equal(preparation.getGrade().score, 90);
+    assert.equal(preparation.submit(grammar, 'абв').ready, true);
+    assert.equal(preparation.getGrade().score, 90);
+  }
+});
+
+require('node:test')('literal commas work in address alphabets and unknown template symbols are rejected', () => {
+  const assert = require('node:assert/strict');
+  const { GrammarController } = controller('GrammarController');
+  const grammar = GrammarController.createGrammar([{ symbol: 'A', allowedValues: '{а-я}' }], 'ул. AAAA, д. AAA,', { terminals: 'а-яА-я0-9 ,.', nonterminals: 'A' });
+  assert.deepEqual(GrammarController.validateAlphabet(grammar), []);
+  assert.deepEqual(GrammarController.validateInputWord('ул. абвг, д. абв,', grammar), []);
+  assert.ok(GrammarController.validateDraft({ ...grammar, template: 'ул. Q' }, 'template').some(error => error.kind === 'unknown_nonterminal'));
+});
+
+require('node:test')('the supplied address grammar matches only the exact number and kind of symbols', () => {
+  const assert = require('node:assert/strict');
+  const { GrammarController } = controller('GrammarController');
+  const { SimulationController } = controller('SimulationController');
+  const variables = Object.entries({ K: 'А-Я', M: '0-9', N: 'А-Яа-я', V: 'а-я_', B: 'а-я', F: '0-9_', A: '.,' }).map(([symbol, allowedValues]) => ({ symbol, allowedValues }));
+  const grammar = GrammarController.createGrammar(variables, 'ул. KNNNBVVVVV, д. MFF, кв. MFF', { terminals: 'а-я0-9А-Я.,_ ', nonterminals: 'KMNVBFA' });
+  assert.deepEqual(GrammarController.validateAlphabet(grammar), []);
+  assert.equal(GrammarController.matches(',', '.,'), true);
+  for (const [word, status] of [['ул. Аббббббббб, д. 12_, кв. 128', 'success'], ['ул. Абббббббббб, д. 12, кв. 128', 'error']]) {
+    const simulation = new SimulationController(grammar);
+    simulation.start(word);
+    while (simulation.getState().status === 'loading') simulation.loadNext();
+    while (simulation.getState().status === 'running') simulation.tick();
+    assert.equal(simulation.getState().status, status, word);
+  }
+});
+
+require('node:test')('address and house lengths never block preparation or add penalties', () => {
+  const assert = require('node:assert/strict');
+  const { GrammarController } = controller('GrammarController');
+  const { PreparationController } = controller('PreparationController');
+  const grammar = GrammarController.createGrammar([
+    { symbol: 'A', allowedValues: 'а-я' }, { symbol: 'D', allowedValues: '0-9' },
+  ], 'ул. A, д. D', { terminals: 'а-я0-9 ,.', nonterminals: 'AD' });
+  for (const word of ['', 'ул. а, д. 1', 'ул. аб, д. 12', `ул. ${'а'.repeat(40)}, д. ${'1'.repeat(20)}`]) {
+    const preparation = new PreparationController();
+    const result = preparation.submit(grammar, word);
+    assert.equal(result.ready, true, word);
+    while (result.controller.getState().status === 'loading') result.controller.loadNext();
+    while (result.controller.getState().status === 'running') result.controller.tick();
+    assert.deepEqual(preparation.getInputErrors(), []);
+    assert.equal(preparation.getGrade().score, 100);
+    assert.equal(result.controller.getState().status, word === 'ул. а, д. 1' ? 'success' : 'error');
+  }
 });
